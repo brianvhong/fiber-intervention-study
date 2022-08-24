@@ -71,3 +71,6 @@ p_normalize <- ggboxplot(lcat_summary, x = "plate", y = "norm_lcat",
                add = "jitter")
 # Change method
 p_normalize + stat_compare_means(method = "t.test")
+
+
+## Test
