@@ -37,6 +37,7 @@ qc_p1 <- mean(lcat_p1_summary$mean_lcat[lcat_p1_summary$id == "qc"])
 qc_p2 <- mean(lcat_p2_summary$mean_lcat[lcat_p2_summary$id == "qc"])
 
 
+
 ## Normalize Summarize Data to QC
 lcat_p1_summary <- lcat_p1_summary %>%
         mutate(norm_lcat = mean_lcat/qc_p1)
