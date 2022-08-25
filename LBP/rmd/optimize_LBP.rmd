@@ -95,7 +95,7 @@ intercept <- signif(linear.model$coef[[1]],5 )
 ***
 
 ## Sample CVS
-```{r}
+```{r echo=FALSE}
 plasma_dfs <- c("`1_plasma_LBP`","`1.10_plasma_LBP`","`1.100_plasma_LBP`","`1.2_plasma_LBP`")
 
 `1_plasma_LBP` <- `1_plasma_LBP` %>%
@@ -107,7 +107,7 @@ plasma_dfs <- c("`1_plasma_LBP`","`1.10_plasma_LBP`","`1.100_plasma_LBP`","`1.2_
 `1.10_plasma_LBP` <- `1.10_plasma_LBP` %>%
         mutate(dilution = 10)
 
-`1.100_plasma_LBP` <- `1.10_plasma_LBP` %>%
+`1.100_plasma_LBP` <- `1.100_plasma_LBP` %>%
         mutate(dilution = 100)
 
 df <- rbind(`1_plasma_LBP`,`1.2_plasma_LBP`,`1.10_plasma_LBP`,`1.100_plasma_LBP`)
@@ -148,5 +148,5 @@ ggplot(df_summary, aes(x = dilution, y = mean, color = sample)) +
 
 - Eliminate highest standard
 
-- Does not make sense to calculate LBP protein concentration with this data. 
+- Does not make sense to calculate LBP protein concentration with this data because it looks like the data is already within the hook effect at the 100 Fold dilution. Ideally, larger dilutions should have lower absorbance values but not the other way around. 
 

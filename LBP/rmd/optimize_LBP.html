@@ -4171,34 +4171,10 @@ div.tocify {
 </div>
 <div id="sample-cvs" class="section level2">
 <h2>Sample CVS</h2>
-<pre class="r"><code>plasma_dfs &lt;- c(&quot;`1_plasma_LBP`&quot;,&quot;`1.10_plasma_LBP`&quot;,&quot;`1.100_plasma_LBP`&quot;,&quot;`1.2_plasma_LBP`&quot;)
-
-`1_plasma_LBP` &lt;- `1_plasma_LBP` %&gt;%
-        mutate(dilution = 0)
-
-`1.2_plasma_LBP` &lt;- `1.2_plasma_LBP` %&gt;%
-        mutate(dilution = 2)
-
-`1.10_plasma_LBP` &lt;- `1.10_plasma_LBP` %&gt;%
-        mutate(dilution = 10)
-
-`1.100_plasma_LBP` &lt;- `1.10_plasma_LBP` %&gt;%
-        mutate(dilution = 100)
-
-df &lt;- rbind(`1_plasma_LBP`,`1.2_plasma_LBP`,`1.10_plasma_LBP`,`1.100_plasma_LBP`)
-
-## CV
-df_summary &lt;- df %&gt;%
-        group_by(sample, dilution) %&gt;%
-        summarize(mean = mean(absorbance_1),
-                  sd = sd(absorbance_1),
-                  cv = sd/mean *100)</code></pre>
 <pre><code>## `summarise()` has grouped output by &#39;sample&#39;. You can override using the
 ## `.groups` argument.</code></pre>
-<pre class="r"><code>datatable(df_summary, colnames = c(&quot;Sample&quot;,&quot;Dilution Factor&quot;,&quot;Absorbance&quot;,&quot;SD&quot;,&quot;CV (%)&quot;)) %&gt;%
-        formatRound(columns = c(&quot;mean&quot;,&quot;sd&quot;,&quot;cv&quot;), digits = 3)</code></pre>
-<div id="htmlwidget-c7cc9548d1a8aa5ccbf4" style="width:100%;height:auto;" class="datatables html-widget"></div>
-<script type="application/json" data-for="htmlwidget-c7cc9548d1a8aa5ccbf4">{"x":{"filter":"none","vertical":false,"data":[["1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16"],[1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4],[0,2,10,100,0,2,10,100,0,2,10,100,0,2,10,100],[0.632,0.893333333333333,1.18333333333333,1.18333333333333,0.793333333333333,0.764333333333333,1.30466666666667,1.30466666666667,0.798333333333333,0.720333333333333,1.279,1.279,0.774333333333333,0.744333333333333,1.42066666666667,1.42066666666667],[0.0181934053986603,0.110264832713487,0.0402036482589993,0.0402036482589993,0.0115470053837925,0.117491843688544,0.12761008319617,0.12761008319617,0.0830501856309385,0.137732833171083,0.182658150653071,0.182658150653071,0.0100166528008778,0.113495961749013,0.0927433735278879,0.0927433735278879],[2.87870338586397,12.3430782888232,3.39749140216895,3.39749140216895,1.45550488030998,15.3718068497878,9.7810487886691,9.7810487886691,10.4029460080507,19.1207079830286,14.2813253051658,14.2813253051658,1.29358408965275,15.2480020262892,6.52815862467535,6.52815862467535]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th> <\/th>\n      <th>Sample<\/th>\n      <th>Dilution Factor<\/th>\n      <th>Absorbance<\/th>\n      <th>SD<\/th>\n      <th>CV (%)<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"columnDefs":[{"targets":3,"render":"function(data, type, row, meta) {\n    return type !== 'display' ? data : DTWidget.formatRound(data, 3, 3, \",\", \".\", null);\n  }"},{"targets":4,"render":"function(data, type, row, meta) {\n    return type !== 'display' ? data : DTWidget.formatRound(data, 3, 3, \",\", \".\", null);\n  }"},{"targets":5,"render":"function(data, type, row, meta) {\n    return type !== 'display' ? data : DTWidget.formatRound(data, 3, 3, \",\", \".\", null);\n  }"},{"className":"dt-right","targets":[1,2,3,4,5]},{"orderable":false,"targets":0}],"order":[],"autoWidth":false,"orderClasses":false}},"evals":["options.columnDefs.0.render","options.columnDefs.1.render","options.columnDefs.2.render"],"jsHooks":[]}</script>
+<div id="htmlwidget-8c010dc7c1e674f7ec8e" style="width:100%;height:auto;" class="datatables html-widget"></div>
+<script type="application/json" data-for="htmlwidget-8c010dc7c1e674f7ec8e">{"x":{"filter":"none","vertical":false,"data":[["1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16"],[1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4],[0,2,10,100,0,2,10,100,0,2,10,100,0,2,10,100],[0.632,0.893333333333333,1.18333333333333,1.18333333333333,0.793333333333333,0.764333333333333,1.30466666666667,1.30466666666667,0.798333333333333,0.720333333333333,1.279,1.279,0.774333333333333,0.744333333333333,1.42066666666667,1.42066666666667],[0.0181934053986603,0.110264832713487,0.0402036482589993,0.0402036482589993,0.0115470053837925,0.117491843688544,0.12761008319617,0.12761008319617,0.0830501856309385,0.137732833171083,0.182658150653071,0.182658150653071,0.0100166528008778,0.113495961749013,0.0927433735278879,0.0927433735278879],[2.87870338586397,12.3430782888232,3.39749140216895,3.39749140216895,1.45550488030998,15.3718068497878,9.7810487886691,9.7810487886691,10.4029460080507,19.1207079830286,14.2813253051658,14.2813253051658,1.29358408965275,15.2480020262892,6.52815862467535,6.52815862467535]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th> <\/th>\n      <th>Sample<\/th>\n      <th>Dilution Factor<\/th>\n      <th>Absorbance<\/th>\n      <th>SD<\/th>\n      <th>CV (%)<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"columnDefs":[{"targets":3,"render":"function(data, type, row, meta) {\n    return type !== 'display' ? data : DTWidget.formatRound(data, 3, 3, \",\", \".\", null);\n  }"},{"targets":4,"render":"function(data, type, row, meta) {\n    return type !== 'display' ? data : DTWidget.formatRound(data, 3, 3, \",\", \".\", null);\n  }"},{"targets":5,"render":"function(data, type, row, meta) {\n    return type !== 'display' ? data : DTWidget.formatRound(data, 3, 3, \",\", \".\", null);\n  }"},{"className":"dt-right","targets":[1,2,3,4,5]},{"orderable":false,"targets":0}],"order":[],"autoWidth":false,"orderClasses":false}},"evals":["options.columnDefs.0.render","options.columnDefs.1.render","options.columnDefs.2.render"],"jsHooks":[]}</script>
 <hr />
 </div>
 <div id="plot" class="section level2">
