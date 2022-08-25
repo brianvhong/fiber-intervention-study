@@ -71,7 +71,7 @@ slope <- signif(linear.model$coef[[2]], 5)
 intercept <- signif(linear.model$coef[[1]],5 )
 ```
 
-> Need to remove higest standard
+> Need to remove highest standard.
 
 ***
 
