@@ -1,0 +1,104 @@
+if (!require("pacman")) install.packages("pacman") ## This code installs pacman package, pacman automatically download required packages if you don't have them and load them for you.
+
+pacman::p_load(tidyverse, here, DT, ggpubr, readxl) # These are the packages you need and to download/load
+
+
+## Read Files
+
+standard <- read_excel(here("LBP","optimize","standard","LBP_standard.xls"))
+
+##Read files names for plasma
+my_files <- list.files(path=here("LBP","optimize","tidy"),
+                        pattern=".*csv")
+
+all_csv <- lapply(here("LBP","optimize","tidy",my_files),read_csv)
+
+# Set the name of each list element to its
+# respective file name. Note full.names = FALSE to
+# get only the file names, not the full path.
+names(all_csv) <- gsub(".csv","",
+                       list.files(here("LBP","optimize","tidy"), full.names = FALSE),
+                       fixed = TRUE)
+
+# write it into global environment.
+list2env(all_csv, .GlobalEnv)
+
+## Standard Curve
+
+standard <- standard %>%
+        group_by(concentration) %>%
+        summarize(absorbance = mean(absorbance_1)) 
+
+
+### Linear Model
+linear.model <- lm(absorbance ~ concentration, data = standard)
+
+
+## Linear model function
+ggplotRegression <- function (fit) {
+        
+        require(ggplot2)
+        
+        ggplot(fit$model, aes_string(x = names(fit$model)[2], y = names(fit$model)[1])) + 
+                geom_point() +
+                stat_smooth(method = "lm", col = "red") +
+                labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                                   "Intercept =",signif(fit$coef[[1]],5 ),
+                                   " Slope =",signif(fit$coef[[2]], 5),
+                                   " P =",signif(summary(fit)$coef[2,4], 5)), 
+                     x = 'Concentration (ng/mL)',
+                     y = 'Absorbance')
+}
+
+ggplotRegression(linear.model)
+
+slope <- signif(linear.model$coef[[2]], 5)
+intercept <- signif(linear.model$coef[[1]],5 )
+
+## Remove Highest Concntration
+standard_filter <- standard %>%
+        filter(!(concentration == 50.000))
+    
+linear.model <- lm(absorbance ~ concentration, data = standard_filter)
+ggplotRegression(linear.model)
+
+slope <- signif(linear.model$coef[[2]], 5)
+intercept <- signif(linear.model$coef[[1]],5 )
+
+
+## Samples
+plasma_dfs <- c("`1_plasma_LBP`","`1.10_plasma_LBP`","`1.100_plasma_LBP`","`1.2_plasma_LBP`")
+
+`1_plasma_LBP` <- `1_plasma_LBP` %>%
+        mutate(dilution = 0)
+
+`1.2_plasma_LBP` <- `1.2_plasma_LBP` %>%
+        mutate(dilution = 2)
+
+`1.10_plasma_LBP` <- `1.10_plasma_LBP` %>%
+        mutate(dilution = 10)
+
+`1.100_plasma_LBP` <- `1.10_plasma_LBP` %>%
+        mutate(dilution = 100)
+
+df <- rbind(`1_plasma_LBP`,`1.2_plasma_LBP`,`1.10_plasma_LBP`,`1.100_plasma_LBP`)
+
+## CV
+df_summary <- df %>%
+        group_by(sample, dilution) %>%
+        summarize(mean = mean(absorbance_1),
+                  sd = sd(absorbance_1),
+                  cv = sd/mean *100)
+
+datatable(df_summary, colnames = c("Sample","Dilution Factor","Absorbance","SD","CV (%)")) %>%
+        formatRound(columns = c("mean","sd","cv"), digits = 3)
+
+##Factor
+df_summary$sample <- as.factor(df_summary$sample)
+
+## Plot
+ggplot(df_summary, aes(x = dilution, y = mean, color = sample)) +
+        geom_point() +
+        geom_line(aes(color = sample)) +
+        labs(x="Dilution Factor\n (0, 2, 10, 100 Fold)", y="Absorbance",
+             title = "Conclusion = Need to dilute further beyond 100 Fold")
