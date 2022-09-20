@@ -62,6 +62,7 @@ ggplot(lcat_summary, aes(x = cv_lcat)) +
 p <- ggboxplot(lcat_summary, x = "plate", y = "mean_lcat",
           color = "plate", palette = "jco",
           add = "jitter")
+
 # Change method
 p + stat_compare_means(method = "t.test")
 
