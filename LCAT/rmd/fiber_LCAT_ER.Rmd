@@ -24,7 +24,8 @@ pacman::p_load(here,
                magrittr,
                dplyr,
                readxl,
-               ggplot2)
+               ggplot2,
+               DT)
 
 
 
@@ -32,7 +33,7 @@ pacman::p_load(here,
 
 # ID mapping + clinic metadata
 
-```{r}
+```{r echo = F}
 mapping <- read.csv(here("subject_characteristics","final_samples.csv"))[,1:2] %>%
     `colnames<-`(c("Sample", "Sample.ID")) %>%
     mutate(Sample = as.character(Sample))
@@ -46,7 +47,7 @@ metadata <- left_join(mapping, clinic)
 
 # Plate layout
 
-```{r}
+```{r echo = F}
 layout1 <- c(as.matrix(read_xlsx(here("LCAT","layout","LCAT_layout.xlsx"), range = "B1:L9"))) %>%
     sub(" *", "", .)
 layout2 <- c(as.matrix(read_xlsx(here("LCAT","layout","LCAT_layout.xlsx"), range = "B12:L20"))) %>%
@@ -62,8 +63,9 @@ layout2[layout2=="blank"] <- "blank.plate2"
 
 # Read and tidy LCAT assay results
 
-```{r}
+```{r echo = F}
 ranges <- c("C145:M153", "C157:M165", "C169:M177")
+
 plate1 <- lapply(ranges, function(x){
     c(as.matrix(read_xlsx(here("LCAT","raw","2022-07-01_LCAT Fiber.xlsx"), range = x)))
 }) %>%
@@ -81,7 +83,7 @@ plate1 <- lapply(ranges, function(x){
         filter(Sample != "ercc.plate1") %>%
         group_by(Sample, Batch) %>%
         summarize(LCAT.ratio = mean(LCAT.ratio),
-                  norm.LCAT.ratio = mean(LCAT.ratio))
+                  norm.LCAT.ratio = mean(norm.LCAT.ratio))
         
 
 
@@ -102,11 +104,12 @@ plate2 <- lapply(ranges, function(x){
         filter(Sample != "ercc.plate2") %>%
         group_by(Sample, Batch) %>%
         summarize(LCAT.ratio = mean(LCAT.ratio),
-                  norm.LCAT.ratio = mean(LCAT.ratio))
+                  norm.LCAT.ratio = mean(norm.LCAT.ratio))
 
 plate.merge <- rbind(plate1, plate2) %>%
     left_join(metadata) %>%
-    mutate(EU = paste(subject, timepoint, treatment, sep = "."))
+    mutate(EU = paste(subject, timepoint, treatment, sep = ".")) %>%
+        filter(Sample != "74") # Filter outlier
 
 ```
 
@@ -115,7 +118,7 @@ plate.merge <- rbind(plate1, plate2) %>%
 EU=treatment:timepoint:subject.\
 Linear fixed model: LCAT.ratio\~treatment\*timepoint+(1\|subject)
 
-```{r}
+```{r echo = F}
 ## Change subject to factor
 plate.merge$subject <- as.factor(plate.merge$subject)
 
@@ -136,8 +139,14 @@ con <- contrast(emm, interaction = "pairwise", lmer.df = "K")
 con
 ```
 
- > Results showed: (fiber.post-fiber.pre)-(placebo.post-placebo.pre)=0.00817, p-value = 0.5689\
+ > Results showed: (fiber.post-fiber.pre)-(placebo.post-placebo.pre)=0.0025, p-value = 0.7176\
 Subjects contributed more variances than treatment and timepoint.
+
+# Table
+
+```{r}
+datatable(plate.merge)
+```
 
 # Visulization
 
@@ -145,7 +154,7 @@ Subjects contributed more variances than treatment and timepoint.
 
 ```{r}
 # boxplot, all data points
-ggplot(plate.merge, aes(timepoint, LCAT.ratio))+
+ggplot(plate.merge, aes(timepoint, norm.LCAT.ratio))+
     geom_boxplot()+
     geom_point(aes(color = subject), position = position_jitter())+
     # geom_line(aes(color = subject, group = subject)) +
