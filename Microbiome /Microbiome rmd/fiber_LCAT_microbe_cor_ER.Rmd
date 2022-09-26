@@ -1,0 +1,168 @@
+---
+title: "LCAT microbiome correlation"
+author: "Cynthia Tang"
+date: "2022-09-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(HTSet)
+library(tidyverse)
+library(pheatmap)
+library(readxl)
+```
+
+# ID mapping + clinic metadata
+
+```{r}
+mapping <- read.csv("final_samples.csv")[,1:2] %>%
+    `colnames<-`(c("Sample", "Sample.ID")) %>%
+    mutate(Sample = as.character(Sample))
+clinic <- read_xlsx("USANA Study Clinical Meta Data Sheet.xlsx", sheet = 1) %>%
+    mutate(
+        Sample.ID = paste0(subject, `timepoint coded`),
+        treatment = ifelse(treatment=="A", "fiber", "placebo")
+    ) 
+metadata <- left_join(mapping, clinic)
+```
+
+# Plate layout
+
+```{r}
+layout1 <- c(as.matrix(read_xlsx("LCAT_layout.xlsx", range = "B1:L9"))) %>%
+    sub(" *", "", .)
+layout2 <- c(as.matrix(read_xlsx("LCAT_layout.xlsx", range = "B12:L20"))) %>%
+    sub(" *", "", .)
+
+layout1 <- layout1[!is.na(layout1)]
+layout1[layout1=="ercc"] <- "ercc.plate1"
+layout1[layout1=="blank"] <- "blank.plate1"
+layout2 <- layout2[!is.na(layout2)]
+layout2[layout2=="ercc"] <- "ercc.plate2"
+layout2[layout2=="blank"] <- "blank.plate2"
+```
+
+# Read and tidy LCAT assay results
+
+```{r}
+ranges <- c("C145:M153", "C157:M165", "C169:M177")
+plate1 <- lapply(ranges, function(x){
+    c(as.matrix(read_xlsx("2022-07-01_LCAT Fiber.xlsx", range = x)))
+}) %>%
+    `names<-`(c("ratio1", "ratio2", "ratio3")) %>%
+    do.call(cbind, .) %>%
+    as.data.frame() %>%
+    filter(complete.cases(.)) %>%
+    mutate(Sample = layout1,
+           Batch = "1")
+
+plate2 <- lapply(ranges, function(x){
+    c(as.matrix(read_xlsx("2022-07-02_LCAT Fiber.xlsx", range = x)))
+}) %>%
+    `names<-`(c("ratio1", "ratio2", "ratio3")) %>%
+    do.call(cbind, .) %>%
+    as.data.frame() %>%
+    filter(complete.cases(.)) %>%
+    mutate(Sample = layout2, 
+           Batch = "2")
+
+plate.merge <- rbind(plate1, plate2) %>%
+    left_join(metadata) %>%
+    pivot_longer(cols = ratio1:ratio3, names_to = "Read", values_to = "LCAT.ratio") %>%
+    mutate_at(c("Sample", "Batch", "Sample.ID", "subject", "timepoint coded", "gender", "Read"), factor) %>%
+    mutate(timepoint = factor(timepoint, levels = c("pre", "post")),
+           treatment = factor(treatment, levels = c("placebo", "fiber")))
+
+# Exclude POS, NEG in the mixed linear model
+plate.merge.sub <- filter(plate.merge, complete.cases(plate.merge)) %>%
+    mutate(EU = paste(subject, timepoint, treatment, sep = "."))
+```
+
+# OTU table
+
+At Genus level:
+```{r}
+taxa <- readRDS("taxa.rds")
+overlapped.id <- sampleNames(taxa) %in% plate.merge.sub$Sample.ID
+genus <- summarize_feature(taxa, "genus")[,overlapped.id]
+genus <- genus$edata # OTU count table at the genus level
+var0 <- apply(genus, 1, function(x)var(x)==0) # remove genus with variance == 0
+sum(var0)
+genus <- genus[!var0,]
+```
+
+# Correlation analysis
+
+Aggregate LCAT ratios.
+```{r}
+LCAT <- plate.merge.sub %>%
+    select(Sample.ID, LCAT.ratio) %>%
+    group_by(Sample.ID) %>%
+    summarise(LCAT.ratio = mean(LCAT.ratio)) %>%
+    pull() %>%
+    `names<-`(unique(plate.merge.sub$Sample.ID))
+
+# Check whether the sample ID in the two dataset matches
+identical(names(LCAT), colnames(genus))
+```
+
+Correlation between absolute microbes (genus) OTU counts and LCAT concentration.
+```{r}
+correlation <- function(microbes, y, cor.method){
+    # correlation
+    cor <- apply(microbes, 1, function(x){
+        cor.test(x, y, method = cor.method, exact = F)$estimate
+    })
+    # p-value
+    p <- apply(microbes, 1, function(x){
+        cor.test(x, y, method = cor.method, exact = F)$p.value
+    })
+    # adjusted p-value
+    padj <- p.adjust(p, method = "BH")
+    data.frame(
+        cor = cor,
+        pval = p,
+        padj = padj
+    )
+}
+cor.count <- correlation(microbes = genus, y = LCAT, cor.method = "spearman")
+```
+
+# Visualization
+```{r function}
+top.hits <- filter(cor.count, padj<0.05) %>%
+    arrange(desc(abs(cor))) %>%
+    rownames()
+
+cor.plot <- function(microbes, x, y, xlab = x, ylab = "LCAT", cor.res = cor.count){
+    df <- data.frame(
+        x = microbes[x,],
+        y = y
+    ) 
+    stats <- as.numeric(cor.count[x,c(1,3)]) %>%
+        signif(3)
+    p <- ggplot(df, aes(x=x, y=y)) +
+        geom_point() +
+        geom_smooth(method = "lm") +
+        labs(x = paste(xlab, "count"), y = ylab) +
+        theme_bw()
+    xmax <- max(df$x)
+    ymax <- max(df$y)
+    p <- p +
+        annotate(
+            "text", x = xmax*0.8, y = c(ymax, ymax*0.98), 
+            label = paste0(c("rho = ", "padj = "), stats)
+        )
+    return(p)
+}
+```
+
+```{r}
+cor.plot(microbes = genus, x = top.hits[1], y = LCAT, ylab = "LCAT", cor.res = cor.count)
+cor.plot(microbes = genus, x = top.hits[10], y = LCAT, ylab = "LCAT", cor.res = cor.count) +
+    scale_x_log10()
+cor.plot(microbes = genus, x = "Bifidobacterium", y = LCAT, ylab = "LCAT", cor.res = cor.count)+
+    scale_x_log10()
+```
+
