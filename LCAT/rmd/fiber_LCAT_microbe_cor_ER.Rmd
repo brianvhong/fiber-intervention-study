@@ -1,8 +1,13 @@
 ---
 title: "LCAT microbiome correlation"
-author: "Cynthia Tang"
+author: "Cynthia Tang, modfied 9.28.22 BH"
 date: "2022-09-24"
-output: html_document
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
 ---
 
 ```{r setup, include=FALSE}
@@ -11,6 +16,9 @@ knitr::opts_chunk$set(echo = TRUE)
 if(!any(rownames(installed.packages()) == 'pacman'))
         install.packages('pacman')
 
+if(!any(rownames(installed.packages()) == 'devtools'))
+        install.packages('devtools')
+
 if(!any(rownames(installed.packages()) == 'HTSet'))
         devtools::install_github("zhuchcn/HTSet")
 
@@ -18,75 +26,15 @@ pacman::p_load(HTSet,
                tidyverse,
                pheatmap,
                readxl,
+               DT,
+               insight,
                here)
 ```
 
-# ID mapping + clinic metadata
 
+## Load Data
 ```{r}
-mapping <- read.csv(here("subject_characteristics","final_samples.csv"))[,1:2] %>%
-    `colnames<-`(c("Sample", "Sample.ID")) %>%
-    mutate(Sample = as.character(Sample))
-    
-clinic <- read_xlsx(here("subject_characteristics","USANA Study Clinical Meta Data Sheet.xlsx"), sheet = 1) %>%
-    mutate(
-        Sample.ID = paste0(subject, `timepoint coded`),
-        treatment = ifelse(treatment=="A", "fiber", "placebo")
-    ) 
-
-metadata <- left_join(mapping, clinic)
-```
-
-# Plate layout
-
-```{r}
-layout1 <- c(as.matrix(read_xlsx(here("LCAT","layout","LCAT_layout.xlsx"), range = "B1:L9"))) %>%
-    sub(" *", "", .)
-layout2 <- c(as.matrix(read_xlsx(here("LCAT","layout","LCAT_layout.xlsx"), range = "B12:L20"))) %>%
-    sub(" *", "", .)
-
-layout1 <- layout1[!is.na(layout1)]
-layout1[layout1=="ercc"] <- "ercc.plate1"
-layout1[layout1=="blank"] <- "blank.plate1"
-layout2 <- layout2[!is.na(layout2)]
-layout2[layout2=="ercc"] <- "ercc.plate2"
-layout2[layout2=="blank"] <- "blank.plate2"
-```
-
-# Read and tidy LCAT assay results
-
-```{r}
-ranges <- c("C145:M153", "C157:M165", "C169:M177")
-plate1 <- lapply(ranges, function(x){
-    c(as.matrix(read_xlsx(here("LCAT","raw","2022-07-01_LCAT Fiber.xlsx"), range = x)))
-}) %>%
-    `names<-`(c("ratio1", "ratio2", "ratio3")) %>%
-    do.call(cbind, .) %>%
-    as.data.frame() %>%
-    filter(complete.cases(.)) %>%
-    mutate(Sample = layout1,
-           Batch = "1")
-
-plate2 <- lapply(ranges, function(x){
-    c(as.matrix(read_xlsx(here("LCAT","raw","2022-07-02_LCAT Fiber.xlsx"), range = x)))
-}) %>%
-    `names<-`(c("ratio1", "ratio2", "ratio3")) %>%
-    do.call(cbind, .) %>%
-    as.data.frame() %>%
-    filter(complete.cases(.)) %>%
-    mutate(Sample = layout2, 
-           Batch = "2")
-
-plate.merge <- rbind(plate1, plate2) %>%
-    left_join(metadata) %>%
-    pivot_longer(cols = ratio1:ratio3, names_to = "Read", values_to = "LCAT.ratio") %>%
-    mutate_at(c("Sample", "Batch", "Sample.ID", "subject", "timepoint coded", "gender", "Read"), factor) %>%
-    mutate(timepoint = factor(timepoint, levels = c("pre", "post")),
-           treatment = factor(treatment, levels = c("placebo", "fiber")))
-
-# Exclude POS, NEG in the mixed linear model
-plate.merge.sub <- filter(plate.merge, complete.cases(plate.merge)) %>%
-    mutate(EU = paste(subject, timepoint, treatment, sep = "."))
+plate.merge <- readRDS(here("LCAT","data","LCAT_summary_filter_223B.rds"))
 ```
 
 # OTU table
@@ -94,31 +42,39 @@ plate.merge.sub <- filter(plate.merge, complete.cases(plate.merge)) %>%
 At Genus level:
 ```{r}
 taxa <- readRDS(here("microbiome","data","taxa.rds"))
-overlapped.id <- sampleNames(taxa) %in% plate.merge.sub$Sample.ID
+
+overlapped.id <- sampleNames(taxa) %in% plate.merge$Sample.ID
+
 genus <- summarize_feature(taxa, "genus")[,overlapped.id]
+
 genus <- genus$edata # OTU count table at the genus level
+
 var0 <- apply(genus, 1, function(x)var(x)==0) # remove genus with variance == 0
+
 sum(var0)
-genus <- genus[!var0,]
+
+## Remove Outlier (Sample # 74 / Sample ID 223B)
+
+genus <- genus[, colnames(genus)!="223B"]
+
+
 ```
 
 # Correlation analysis
 
-Aggregate LCAT ratios.
+Pull Normalized LCAT ratios as vector.
 ```{r}
-LCAT <- plate.merge.sub %>%
-    select(Sample.ID, LCAT.ratio) %>%
-    group_by(Sample.ID) %>%
-    summarise(LCAT.ratio = mean(LCAT.ratio)) %>%
+LCAT <- plate.merge %>%
+    select(Sample.ID, norm.LCAT.ratio) %>%
     pull() %>%
-    `names<-`(unique(plate.merge.sub$Sample.ID))
+    `names<-`(unique(plate.merge$Sample.ID))
 
 # Check whether the sample ID in the two dataset matches
 identical(names(LCAT), colnames(genus))
 ```
 
 Correlation between absolute microbes (genus) OTU counts and LCAT concentration.
-```{r}
+```{r echo = F, warning = F}
 correlation <- function(microbes, y, cor.method){
     # correlation
     cor <- apply(microbes, 1, function(x){
@@ -136,11 +92,14 @@ correlation <- function(microbes, y, cor.method){
         padj = padj
     )
 }
-cor.count <- correlation(microbes = genus, y = LCAT, cor.method = "spearman")
+
+
+cor.count <- correlation(microbes = genus, y = LCAT, cor.method = "spearman") %>%
+        mutate(p.value.star = insight::format_p(padj, name = NULL, stars_only = TRUE))
 ```
 
 # Visualization
-```{r function}
+```{r function, echo = F}
 top.hits <- filter(cor.count, padj<0.05) %>%
     arrange(desc(abs(cor))) %>%
     rownames()
@@ -168,11 +127,29 @@ cor.plot <- function(microbes, x, y, xlab = x, ylab = "LCAT", cor.res = cor.coun
 }
 ```
 
+## Correlation plot with Bifidobacterium Adjusted Pvalue <0.05
+```{r echo = F}
+cor.plot(microbes = genus, x = "Bifidobacterium", y = LCAT, ylab = "LCAT", cor.res = cor.count) +
+    scale_x_log10()
+```
+
+## All Correlation plot for Adjusted Pvalue <0.05
+```{r echo = F, warning = F}
+
+for(i in top.hits){
+    plots <- cor.plot(microbes = genus, x = i, y = LCAT, ylab = "LCAT", cor.res = cor.count)  +
+    scale_x_log10()
+    print(plots)
+}
+
+```
+
+
+
+## Table of Correlation
 ```{r}
-cor.plot(microbes = genus, x = top.hits[1], y = LCAT, ylab = "LCAT", cor.res = cor.count)
-cor.plot(microbes = genus, x = top.hits[10], y = LCAT, ylab = "LCAT", cor.res = cor.count) +
-    scale_x_log10()
-cor.plot(microbes = genus, x = "Bifidobacterium", y = LCAT, ylab = "LCAT", cor.res = cor.count)+
-    scale_x_log10()
+datatable(cor.count, colnames = c("Genus","Spearman Correlation (rho)","p-value","Adjusted p-value","Sig level")) %>%
+        formatRound(columns = "cor", digits = 2) %>%
+        formatRound(columns = c("pval","padj"), digits = 3)
 ```
 
