@@ -2,18 +2,9 @@
 if(!any(rownames(installed.packages()) == 'pacman'))
         install.packages('pacman')
 
-if(!any(rownames(installed.packages()) == 'devtools'))
-        install.packages('devtools')
 
-if(!any(rownames(installed.packages()) == 'HTSet'))
-        devtools::install_github("zhuchcn/HTSet")
-
-pacman::p_load(HTSet,
-               tidyverse,
-               pheatmap,
+pacman::p_load(tidyverse,
                readxl,
-               DT,
-               insight,
                here)
 
 
