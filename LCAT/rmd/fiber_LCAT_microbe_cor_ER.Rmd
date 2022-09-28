@@ -24,7 +24,6 @@ if(!any(rownames(installed.packages()) == 'HTSet'))
 
 pacman::p_load(HTSet,
                tidyverse,
-               pheatmap,
                readxl,
                DT,
                insight,
