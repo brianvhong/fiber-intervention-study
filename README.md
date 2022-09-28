@@ -1,5 +1,8 @@
-# fiber_study
+# Fiber Study
 Fiber study analysis for Eddie's project
+
+# Project Oriented Workflow!
+The `here` package enables easy file referencing in project-oriented workflows! 
 
 ## LCAT
 - Use Normalized data (ratio of LCAT / LCAT ratio from quality control for each plate)
