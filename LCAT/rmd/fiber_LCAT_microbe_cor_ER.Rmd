@@ -7,32 +7,42 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(HTSet)
-library(tidyverse)
-library(pheatmap)
-library(readxl)
+
+if(!any(rownames(installed.packages()) == 'pacman'))
+        install.packages('pacman')
+
+if(!any(rownames(installed.packages()) == 'HTSet'))
+        devtools::install_github("zhuchcn/HTSet")
+
+pacman::p_load(HTSet,
+               tidyverse,
+               pheatmap,
+               readxl,
+               here)
 ```
 
 # ID mapping + clinic metadata
 
 ```{r}
-mapping <- read.csv("final_samples.csv")[,1:2] %>%
+mapping <- read.csv(here("subject_characteristics","final_samples.csv"))[,1:2] %>%
     `colnames<-`(c("Sample", "Sample.ID")) %>%
     mutate(Sample = as.character(Sample))
-clinic <- read_xlsx("USANA Study Clinical Meta Data Sheet.xlsx", sheet = 1) %>%
+    
+clinic <- read_xlsx(here("subject_characteristics","USANA Study Clinical Meta Data Sheet.xlsx"), sheet = 1) %>%
     mutate(
         Sample.ID = paste0(subject, `timepoint coded`),
         treatment = ifelse(treatment=="A", "fiber", "placebo")
     ) 
+
 metadata <- left_join(mapping, clinic)
 ```
 
 # Plate layout
 
 ```{r}
-layout1 <- c(as.matrix(read_xlsx("LCAT_layout.xlsx", range = "B1:L9"))) %>%
+layout1 <- c(as.matrix(read_xlsx(here("LCAT","layout","LCAT_layout.xlsx"), range = "B1:L9"))) %>%
     sub(" *", "", .)
-layout2 <- c(as.matrix(read_xlsx("LCAT_layout.xlsx", range = "B12:L20"))) %>%
+layout2 <- c(as.matrix(read_xlsx(here("LCAT","layout","LCAT_layout.xlsx"), range = "B12:L20"))) %>%
     sub(" *", "", .)
 
 layout1 <- layout1[!is.na(layout1)]
@@ -48,7 +58,7 @@ layout2[layout2=="blank"] <- "blank.plate2"
 ```{r}
 ranges <- c("C145:M153", "C157:M165", "C169:M177")
 plate1 <- lapply(ranges, function(x){
-    c(as.matrix(read_xlsx("2022-07-01_LCAT Fiber.xlsx", range = x)))
+    c(as.matrix(read_xlsx(here("LCAT","raw","2022-07-01_LCAT Fiber.xlsx"), range = x)))
 }) %>%
     `names<-`(c("ratio1", "ratio2", "ratio3")) %>%
     do.call(cbind, .) %>%
@@ -58,7 +68,7 @@ plate1 <- lapply(ranges, function(x){
            Batch = "1")
 
 plate2 <- lapply(ranges, function(x){
-    c(as.matrix(read_xlsx("2022-07-02_LCAT Fiber.xlsx", range = x)))
+    c(as.matrix(read_xlsx(here("LCAT","raw","2022-07-02_LCAT Fiber.xlsx"), range = x)))
 }) %>%
     `names<-`(c("ratio1", "ratio2", "ratio3")) %>%
     do.call(cbind, .) %>%
@@ -83,7 +93,7 @@ plate.merge.sub <- filter(plate.merge, complete.cases(plate.merge)) %>%
 
 At Genus level:
 ```{r}
-taxa <- readRDS("taxa.rds")
+taxa <- readRDS(here("microbiome","data","taxa.rds"))
 overlapped.id <- sampleNames(taxa) %in% plate.merge.sub$Sample.ID
 genus <- summarize_feature(taxa, "genus")[,overlapped.id]
 genus <- genus$edata # OTU count table at the genus level
