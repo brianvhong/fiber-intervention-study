@@ -26,6 +26,7 @@ pacman::p_load(here,
                readxl,
                ggplot2,
                ggpubr,
+               rmcorr,
                DT)
 
 
@@ -208,12 +209,17 @@ shapiro.test(plate.merge$log_HDL)
 
 cor.test(plate.merge$norm.LCAT.ratio, plate.merge$log_HDL, method = "pearson")
 
-
-ggscatter(plate.merge, x = "norm.LCAT.ratio", y = "log_HDL", color = "timepoint coded",
+my.rmc <- rmcorr(participant = subject, measure1 = norm.LCAT.ratio, measure2 = log_HDL,
+dataset = plate.merge)
+ my.rmc
+ plot(my.rmc)
+ 
+ggscatter(plate.merge, x = "norm.LCAT.ratio", y = "log_HDL", color = "subject",
    add = "reg.line",  # Add regressin line
    add.params = list(color = "blue", fill = "lightgray"), # Customize reg. line
    conf.int = TRUE # Add confidence interval
    ) + stat_cor(method = "pearson", label.x = 1.05, label.y = 5) +
         labs(y = "log(HDL)", x = "Normalized LCAT Activity")
+
 ```
 
