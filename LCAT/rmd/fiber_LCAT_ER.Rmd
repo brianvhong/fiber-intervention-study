@@ -25,6 +25,7 @@ pacman::p_load(here,
                dplyr,
                readxl,
                ggplot2,
+               ggpubr,
                DT)
 
 
@@ -192,7 +193,7 @@ plate.merge %>%
         labs(y = "Normalized \n LCAT Activity", x = "Time Point")
 ```
 
-## HDL-C correlation with LCAT
+## HDL-C correlation with LCAT (Pearson Correlation)
 ```{r}
 # CHeck normality
 shapiro.test(plate.merge$norm.LCAT.ratio)
@@ -206,5 +207,13 @@ plate.merge <- plate.merge %>%
 shapiro.test(plate.merge$log_HDL)
 
 cor.test(plate.merge$norm.LCAT.ratio, plate.merge$log_HDL, method = "pearson")
+
+
+ggscatter(plate.merge, x = "norm.LCAT.ratio", y = "log_HDL", color = "timepoint coded",
+   add = "reg.line",  # Add regressin line
+   add.params = list(color = "blue", fill = "lightgray"), # Customize reg. line
+   conf.int = TRUE # Add confidence interval
+   ) + stat_cor(method = "pearson", label.x = 1.05, label.y = 5) +
+        labs(y = "log(HDL)", x = "Normalized LCAT Activity")
 ```
 
