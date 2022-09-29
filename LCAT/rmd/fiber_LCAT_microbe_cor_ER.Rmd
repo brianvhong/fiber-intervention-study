@@ -30,6 +30,15 @@ pacman::p_load(HTSet,
                here)
 ```
 
+# QC summary
+
+> Earlier QC analysis suggest plate effects in which the overall fluorescence intensity in plate 2 was significantly lower than plate 1. Therefore, the subsequent analysis uses **Normalized LCAT activity**.
+
+> LCAT activity was normalized to quality control (ERCC2 plasma) by taking the ratio of the Sample LCAT activity (390nm/470nm) / ERCC2 Plasma LCAT activity (390nm/470nm). 
+
+> Sample #73 or subject 223B was a clear outlier, likely due to technical error, and removed from correlation analysis. If there is another partial kit avaiable, I would suggest rerunning sample #73 along with an ERCC2 plasma as QC.
+
+***
 
 ## Load Data
 ```{r}
@@ -97,7 +106,9 @@ cor.count <- correlation(microbes = genus, y = LCAT, cor.method = "spearman") %>
         mutate(p.value.star = insight::format_p(padj, name = NULL, stars_only = TRUE))
 ```
 
-# Visualization
+***
+
+# Visualization Function
 ```{r function, echo = F}
 top.hits <- filter(cor.count, padj<0.05) %>%
     arrange(desc(abs(cor))) %>%
@@ -126,13 +137,17 @@ cor.plot <- function(microbes, x, y, xlab = x, ylab = "LCAT", cor.res = cor.coun
 }
 ```
 
-## Correlation plot with Bifidobacterium Adjusted Pvalue <0.05
+***
+
+## Correlation plot with Bifidobacterium Adjusted Pvalue 
 ```{r echo = F}
 cor.plot(microbes = genus, x = "Bifidobacterium", y = LCAT, ylab = "LCAT", cor.res = cor.count) +
     scale_x_log10()
 ```
 
-## All Correlation plot for Adjusted Pvalue <0.05
+***
+
+## All Correlation plot for Adjusted Pvalue < 0.05
 ```{r echo = F, warning = F}
 
 for(i in top.hits){
@@ -144,6 +159,7 @@ for(i in top.hits){
 ```
 
 
+***
 
 ## Table of Correlation
 ```{r}
