@@ -192,3 +192,19 @@ plate.merge %>%
         labs(y = "Normalized \n LCAT Activity", x = "Time Point")
 ```
 
+## HDL-C correlation with LCAT
+```{r}
+# CHeck normality
+shapiro.test(plate.merge$norm.LCAT.ratio)
+shapiro.test(plate.merge$HDL)
+
+## Log transform HDL
+
+plate.merge <- plate.merge %>%
+        mutate(log_HDL = log(HDL))
+
+shapiro.test(plate.merge$log_HDL)
+
+cor.test(plate.merge$norm.LCAT.ratio, plate.merge$log_HDL, method = "pearson")
+```
+
