@@ -1,0 +1,214 @@
+---
+title: "fiber_LCAT_ER"
+author: "Eddie Romo"
+date: '2022-08-10'
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+
+if(!any(rownames(installed.packages()) == "pacman")){
+   install.packages("pacman")
+}
+
+pacman::p_load(here,
+               readxl,
+               tidyverse,
+               lme4,
+               lmerTest,
+               emmeans,
+               car,
+               magrittr,
+               dplyr,
+               readxl,
+               ggplot2
+)
+
+
+
+```
+
+# ID mapping + clinic metadata
+
+```{r}
+mapping <- read.csv(here("subject_characteristics","final_samples.csv"))[,1:2] %>%
+    `colnames<-`(c("Sample", "Sample.ID")) %>%
+    mutate(Sample = as.character(Sample))
+
+clinic <- read_xlsx(here("subject_characteristics","USANA Study Clinical Meta Data Sheet.xlsx"), sheet = 1) %>%
+    mutate(
+        Sample.ID = paste0(subject, `timepoint coded`),
+        treatment = ifelse(treatment=="A", "fiber", "placebo")
+    ) 
+
+metadata <- left_join(mapping, clinic)
+```
+
+# Plate layout
+
+```{r}
+layout1 <- c(as.matrix(read_xlsx(here("lcat","plate_layout","LCAT_layout.xlsx"), range = "B1:L9"))) %>%
+    sub(" *", "", .)
+
+layout2 <- c(as.matrix(read_xlsx(here("lcat","plate_layout","LCAT_layout.xlsx"), range = "B12:L20"))) %>%
+    sub(" *", "", .)
+
+layout1 <- layout1[!is.na(layout1)]
+layout1[layout1=="ercc"] <- "ercc.plate1"
+layout1[layout1=="blank"] <- "blank.plate1"
+
+layout2 <- layout2[!is.na(layout2)]
+layout2[layout2=="ercc"] <- "ercc.plate2"
+layout2[layout2=="blank"] <- "blank.plate2"
+```
+
+# Read and tidy LCAT assay results
+
+```{r}
+ranges <- c("C145:M153", "C157:M165", "C169:M177")
+
+plate1 <- lapply(ranges, function(x){
+    c(as.matrix(read_xlsx(here("2022-07-01_LCAT Fiber.xlsx"), range = x)))
+}) %>%
+    `names<-`(c("ratio1", "ratio2", "ratio3")) %>%
+    do.call(cbind, .) %>%
+    as.data.frame() %>%
+    filter(complete.cases(.)) %>%
+    mutate(Sample = layout1,
+           Batch = "1")
+
+plate2 <- lapply(ranges, function(x){
+    c(as.matrix(read_xlsx(here("2022-07-02_LCAT Fiber.xlsx"), range = x)))
+}) %>%
+    `names<-`(c("ratio1", "ratio2", "ratio3")) %>%
+    do.call(cbind, .) %>%
+    as.data.frame() %>%
+    filter(complete.cases(.)) %>%
+    mutate(Sample = layout2, 
+           Batch = "2")
+
+# Calculate mean LCAT across ratios
+plate1 <- plate1 %>% 
+        rowwise() %>%
+        mutate(mean_ratio = mean(c(ratio1, ratio2, ratio3))) %>%
+        ungroup() %>%
+        group_by(Sample, Batch) %>%
+        summarize(ratio = mean(mean_ratio)) %>%
+        ungroup %>%
+        mutate(norm_ratio = ratio/ratio[Sample == "ercc.plate1"])
+
+plate2 <- plate2 %>% 
+        rowwise() %>%
+        mutate(mean_ratio = mean(c(ratio1, ratio2, ratio3))) %>%
+        ungroup() %>%
+        group_by(Sample, Batch) %>%
+        summarize(ratio = mean(mean_ratio)) %>%
+        ungroup %>%
+        mutate(norm_ratio = ratio/ratio[Sample == "ercc.plate2"])       
+
+plate.merge <- rbind(plate1, plate2) %>%
+    left_join(metadata) %>%
+    pivot_longer(cols = ratio, names_to = "Read", values_to = "LCAT.ratio") %>%
+        pivot_longer(cols = norm_ratio,  values_to = "norm.LCAT.ratio") %>%
+    mutate_at(c("Sample", "Batch", "Sample.ID", "subject", "timepoint coded", "gender", "Read"), factor) %>%
+    mutate(timepoint = factor(timepoint, levels = c("pre", "post")),
+           treatment = factor(treatment, levels = c("placebo", "fiber")))
+
+# Exclude POS, NEG in the mixed linear model
+plate.merge.sub <- filter(plate.merge, complete.cases(plate.merge)) %>%
+    mutate(EU = paste(subject, timepoint, treatment, sep = "."))
+```
+
+# Statistical analysis
+
+EU=treatment:timepoint:subject.\
+Linear fixed model: LCAT.ratio\~treatment\*timepoint+(1\|EU)+subject
+
+```{r}
+# linear mixed model
+lmmod <- lmerTest::lmer(norm.LCAT.ratio~treatment*timepoint+(1|subject) + gender, data = plate.merge.sub)
+# Check the assumption: normality
+qqPlot(resid(lmmod))
+# ANOVA
+summary(lmmod)
+anova(lmmod, ddf="K")
+# post hoc
+emm <- emmeans(lmmod, specs = c("treatment", "timepoint"), lmer.df = "K")
+con <- contrast(emm, interaction = "pairwise", lmer.df = "K")
+con
+coef(con)
+```
+
+Results showed: (fiber.post-fiber.pre)-(placebo.post-placebo.pre)=0.00867, p-value = 0.5387\
+Subjects contributed more variances than treatment and timepoint.
+
+# Visulization
+
+```{r}
+# POS, NEG values
+ref <- filter(plate.merge, !complete.cases(plate.merge))[,c("Sample", "Batch", "Read", "LCAT.ratio")] %>%
+    group_by(Sample, Batch) %>%
+    summarise(mean = mean(LCAT.ratio))
+```
+
+## All data points
+
+```{r}
+# boxplot, all data points
+ggplot(plate.merge.sub, aes(timepoint, norm.LCAT.ratio))+
+    geom_boxplot()+
+    geom_point(aes(color = subject), position = position_jitter())+
+    # geom_line(aes(color = subject, group = subject)) +
+    facet_grid(~treatment) +
+    theme_bw()
+```
+
+## Mean for each subject
+
+```{r}
+# boxplot, mean for each subject
+plate.merge.sub %>%
+    ggplot(aes(timepoint, norm.LCAT.ratio))+
+    geom_boxplot()+
+    geom_point(aes(color = subject))+
+    geom_line(aes(color = subject, group = subject)) +
+    facet_grid(~treatment) +
+    theme_bw()
+```
+
+## Mean for each subject + batch 1&2
+
+```{r}
+# boxplot, show batch 1&2
+plate.merge.sub %>%
+    ggplot(aes(timepoint, norm.LCAT.ratio))+
+    geom_boxplot()+
+    geom_point(aes(color = subject))+
+    geom_line(aes(color = subject, group = subject)) +
+    facet_grid(Batch~treatment) +
+    theme_bw()
+```
+
+## Mean for each subject + batch 1&2 + POS + NEG
+
+The positive and negative controls are shown as red horizontal lines. Looks like the negative control in batch and positive control in batch 1 didn't work well?
+
+```{r}
+# boxplot, show batch 1&2 and POS, NEG
+plate.merge.sub %>%
+    group_by(subject, timepoint, treatment, Batch) %>%
+    summarise(LCAT.ratio.mean = mean(LCAT.ratio), LCAT.ratio.sd = sd(LCAT.ratio)) %>%
+    ggplot(aes(timepoint, LCAT.ratio.mean))+
+    geom_boxplot()+
+    geom_point(aes(color = subject))+
+    geom_line(aes(color = subject, group = subject)) +
+    facet_grid(Batch~treatment, scales = "free_y") +
+    geom_hline(data=ref, aes(yintercept = mean), color = "red") +
+    theme_bw()
+```
+
