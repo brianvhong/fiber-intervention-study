@@ -1,0 +1,160 @@
+---
+title: "LBP Optim Trial 2"
+author: "Eddie Romo"
+date: "2022-08-25"
+output: 
+        html_document:
+                toc: true
+                toc_float: true
+---
+
+
+```{r include=FALSE}
+if (!require("pacman")) install.packages("pacman") ## This code installs pacman package, pacman automatically download required packages if you don't have them and load them for you.
+
+pacman::p_load(tidyverse, here, DT, ggpubr, readxl) # These are the packages you need and to download/load
+
+
+## Read Files
+
+standard <- read_excel(here("LBP","optimize_2","standard","LBP_standard.xls"))
+
+##Read files names for plasma
+my_files <- list.files(path=here("LBP","optimize_2","tidy"),
+                        pattern=".*csv")
+
+all_csv <- lapply(here("LBP","optimize_2","tidy",my_files),read_csv)
+
+# Set the name of each list element to its
+# respective file name. Note full.names = FALSE to
+# get only the file names, not the full path.
+names(all_csv) <- gsub(".csv","",
+                       list.files(here("LBP","optimize_2","tidy"), full.names = FALSE),
+                       fixed = TRUE)
+
+# write it into global environment.
+list2env(all_csv, .GlobalEnv)
+
+```
+
+## Standard
+```{r echo=FALSE}
+
+standard <- standard %>%
+        group_by(concentration) %>%
+        summarize(absorbance = mean(absorbance_1)) 
+
+
+### Linear Model
+linear.model <- lm(absorbance ~ concentration, data = standard)
+
+
+## Linear model function
+ggplotRegression <- function (fit) {
+        
+        require(ggplot2)
+        
+        ggplot(fit$model, aes_string(x = names(fit$model)[2], y = names(fit$model)[1])) + 
+                geom_point() +
+                stat_smooth(method = "lm", col = "red") +
+                labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                                   "Intercept =",signif(fit$coef[[1]],5 ),
+                                   " Slope =",signif(fit$coef[[2]], 5),
+                                   " P =",signif(summary(fit)$coef[2,4], 5)), 
+                     x = 'Concentration (ng/mL)',
+                     y = 'Absorbance')
+}
+
+ggplotRegression(linear.model)
+
+slope <- signif(linear.model$coef[[2]], 5)
+intercept <- signif(linear.model$coef[[1]],5 )
+```
+
+> removal of higher concentrations.
+
+***
+
+## Standard with high conc. removed
+
+```{r echo=FALSE}
+
+## Remove Highest Concntration
+standard_filter <- standard %>%
+        filter(!(concentration == c(50.000, 25)))
+    
+linear.model <- lm(absorbance ~ concentration, data = standard_filter)
+ggplotRegression(linear.model)
+
+slope <- signif(linear.model$coef[[2]], 5)
+intercept <- signif(linear.model$coef[[1]],5 )
+```
+
+> significantly improved R2
+
+***
+
+## Sample CVS
+```{r echo=FALSE}
+plasma_dfs <- c("`1.100_plasma_LBP`","`1.200_plasma_LBP`","`1.400_plasma_LBP`","`1.800_plasma_LBP`","`1.1600_plasma_LBP`")
+
+`1.100_plasma_LBP` <- `1.100_plasma_LBP` %>%
+        mutate(dilution = 100)
+
+`1.200_plasma_LBP` <- `1.200_plasma_LBP` %>%
+        mutate(dilution = 200)
+
+`1.400_plasma_LBP` <- `1.400_plasma_LBP` %>%
+        mutate(dilution = 400)
+
+`1.800_plasma_LBP` <- `1.800_plasma_LBP` %>%
+        mutate(dilution = 800)
+
+`1.1600_plasma_LBP` <- `1.1600_plasma_LBP` %>%
+        mutate(dilution = 1600)
+
+df <- rbind(`1.100_plasma_LBP`,`1.200_plasma_LBP`,`1.400_plasma_LBP`,`1.800_plasma_LBP`,`1.1600_plasma_LBP` )
+
+## CV
+df_summary <- df %>%
+        group_by(sample, dilution) %>%
+        summarize(mean = mean(absorbance_1),
+                  sd = sd(absorbance_1),
+                  cv = sd/mean *100)
+
+datatable(df_summary, colnames = c("Sample","Dilution Factor","Absorbance","SD","CV (%)")) %>%
+        formatRound(columns = c("mean","sd","cv"), digits = 3)
+
+
+```
+
+***
+
+## Plot
+```{r echo=FALSE}
+##Factor
+df_summary$sample <- as.factor(df_summary$sample)
+
+ggplot(df_summary, aes(x = dilution, y = mean, color = sample)) +
+        geom_point() +
+        geom_line(aes(color = sample)) +
+        labs(x="Dilution Factor\n (100, 200, 400, 800, 1600 Fold)", y="Absorbance",
+             title = "Conclusion: oversaturation solved.")
+
+```
+
+*** 
+
+## Conclusion
+
+- The most dilute sample 1:100 appeared to be within the range of saturation from earlier trial run where signal would decrease with increase concentration. Here after 1:100 the absorbance begins to decrease with higher concentration as expected.
+
+- Additional trial run appears to have solved hook effect phenomenon with higher dilution factors.
+
+- 1.400-1.800 dilution optimal dilution factor for Fiber Study samples.
+
+- CVs seem to be better with some dilutions but that may just be technical since they were extracted from a larger volume at this concentration. 
+
+- Eliminate highest standard
+
+

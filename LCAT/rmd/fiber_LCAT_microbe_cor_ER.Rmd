@@ -1,0 +1,342 @@
+---
+title: "LCAT microbiome correlation"
+author: "Cynthia Tang, modfied 9.28.22 BH"
+date: "2022-09-24"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    code_folding: hide
+  pdf_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+if(!any(rownames(installed.packages()) == 'pacman'))
+        install.packages('pacman')
+
+if(!any(rownames(installed.packages()) == 'devtools'))
+        install.packages('devtools')
+
+if(!any(rownames(installed.packages()) == 'HTSet'))
+        devtools::install_github("zhuchcn/HTSet")
+
+if(!any(rownames(installed.packages()) == 'rmcorr'))
+        install.packages("rmcorr")
+
+
+pacman::p_load(HTSet,
+               tidyverse,
+               readxl,
+               DT,
+               insight,
+               rmcorr,
+               here)
+```
+
+# QC summary
+
+> Earlier QC analysis suggest plate effects in which the overall fluorescence intensity in plate 2 was significantly lower than plate 1. Therefore, the subsequent analysis uses **Normalized LCAT activity**.
+
+> LCAT activity was normalized to quality control (ERCC2 plasma) by taking the ratio of the Sample LCAT activity (390nm/470nm) / ERCC2 Plasma LCAT activity (390nm/470nm). 
+
+> Sample #73 or subject 223B was a clear outlier, likely due to technical error, and removed from correlation analysis. If there is another partial kit avaiable, I would suggest rerunning sample #73 along with an ERCC2 plasma as QC.
+
+***
+
+## Load Data
+```{r}
+plate.merge <- readRDS(here("LCAT","data","LCAT_summary_filter_223B.rds"))
+```
+
+# OTU table
+
+At Genus level (fixed ID):
+```{r include=FALSE}
+taxa <- readRDS(here("microbiome","data","taxa.rds"))
+LCAT.id <- paste0(plate.merge$subject, plate.merge$treatment, plate.merge$timepoint)
+taxa.id <- paste0(taxa$pdata$subject, tolower(taxa$pdata$trt), taxa$pdata$timepoint)
+
+overlapped.id <- taxa.id %in% LCAT.id
+
+genus <- summarize_feature(taxa, "genus")[,overlapped.id]
+
+pdata <- genus$pdata # metadata of subjects
+genus <- genus$edata %>%
+        `colnames<-`(taxa.id[overlapped.id]) # OTU count table at the genus level
+
+var0 <- apply(genus, 1, function(x)var(x)==0) # remove genus with variance == 0
+
+sum(var0)
+genus <- genus[!var0, ]
+
+## Remove Outlier (Sample # 74 / Sample ID 223B)
+genus <- genus[, colnames(genus)!="223fiberpost"]
+genus.cpm <- apply(genus, 2, function(x){x/sum(x)*1000000}) # total count = 1M
+
+```
+
+# LCAT Data
+
+Pull Normalized LCAT ratios as vector.
+```{r include=FALSE}
+LCAT <- plate.merge %>%
+    mutate(LCAT.id = paste0(subject, treatment, timepoint)) %>%
+    select(LCAT.id, norm.LCAT.ratio) %>%
+    pull() %>%
+    `names<-`(unique(LCAT.id))
+
+# Check whether the sample ID in the two dataset matches
+identical(names(LCAT), colnames(genus))
+```
+
+# Repeated Measure Correlation
+
+```{r}
+rmcorrelation <- function(microbe, y, data){
+    df <- data.frame(
+        subject = factor(pdata$subject),
+        microbe = log(data[microbe,]+1), # log-transformation
+        LCAT = y
+    )
+    cor <- rmcorr(subject, measure1 = microbe, measure2 = LCAT, dataset = df)
+}
+```
+
+Check the normality
+```{r}
+shapiro.test(LCAT)
+normality <- data.frame(
+    shapiro.raw = apply(genus.cpm, 1, function(x)shapiro.test(x)$p.value),
+    shapiro.log = apply(genus.cpm, 1, function(x)shapiro.test(log(x+1))$p.value)
+)
+datatable(normality) %>%
+    formatSignif(columns = 1:2)
+```
+LCAT data are normally distributed, but **most microbes data were NOT normally distributed.**
+
+```{r include=FALSE}
+# repeated measure correlation on all genus
+rmcor.res <- lapply(rownames(genus.cpm), function(x)rmcorrelation(x, LCAT, data = genus.cpm)) %>%
+    `names<-`(rownames(genus.cpm))
+# extract p-values
+pvals <- sapply(rmcor.res, function(x)x$p) %>%
+    `names<-`(rownames(genus.cpm))
+# padj
+padjs <- p.adjust(pvals, method = "BH")
+table(padjs<0.05)
+table(pvals<0.05)
+```
+Significant correlation before FDR-adjustment:  
+`r sum(pvals<0.05)`  
+Significant correlation before FDR-adjustment:  
+`r sum(padjs<0.05)`  
+No significant results after FDR-adjustment.
+
+## Visulization (unadjusted p-values)
+
+```{r}
+rmcor.plot <- function(x, xlab, ylab){
+    df <- x$model$model
+    p <- ggplot(df, aes(x = Measure1, y = Measure2)) +
+        geom_point(aes(colour = factor(Participant), group = factor(Participant))) +
+        geom_line(aes(y = x$model$fitted.values, group = factor(Participant), color = factor(Participant)), linetype = 1) +
+        theme_bw() +
+        labs(x = paste(xlab, "log-transformed"), y = ylab)
+    xmax <- max(df$Measure1)
+    ymax <- max(df$Measure2)
+    p <- p +
+        annotate(
+            "text", x = xmax*0.8, y = c(ymax, ymax*0.99), 
+            label = paste0(c("r = ", "pval = "), signif(c(x$r, x$p), 3))
+        )
+    return(p)
+}
+plots <- lapply(rownames(genus.cpm)[which(pvals<0.05)], function(x){
+    rmcor.plot(rmcor.res[[x]], xlab = x, ylab = "LCAT")
+}) %>%
+    `names<-`(rownames(genus.cpm)[which(pvals<0.05)])
+plots
+```
+
+## Table of Repeated Measure Correlation
+
+```{r}
+rmcor.cpm <- data.frame(
+    microbes = rownames(genus.cpm),
+    rmcor = sapply(rmcor.res, function(x)x$r),
+    pval = pvals,
+    padj = padjs,
+    sig = insight::format_p(padjs, name = NULL, stars_only = TRUE)
+)
+datatable(rmcor.cpm, colnames = c("Genus","Correlation (r)","p-value","Adjusted p-value","Sig level")) %>%
+        formatRound(columns = "rmcor", digits = 2) %>%
+        formatRound(columns = c("pval","padj"), digits = 3)
+```
+
+
+# Correlation analysis
+
+Correlation between normalized(cpm) microbes (genus) OTU counts and LCAT concentration.
+```{r echo = F, warning = F}
+correlation <- function(microbes, y, cor.method){
+    # correlation
+    cor <- apply(microbes, 1, function(x){
+        cor.test(x, y, method = cor.method, exact = F)$estimate
+    })
+    # p-value
+    p <- apply(microbes, 1, function(x){
+        cor.test(x, y, method = cor.method, exact = F)$p.value
+    })
+    # adjusted p-value
+    padj <- p.adjust(p, method = "BH")
+    data.frame(
+        cor = cor,
+        pval = p,
+        padj = padj
+    )
+}
+
+
+cor.count <- correlation(microbes = genus, y = LCAT, cor.method = "spearman") %>%
+        mutate(p.value.star = insight::format_p(padj, name = NULL, stars_only = TRUE))
+cor.cpm <- correlation(microbes = genus.cpm, y = LCAT, cor.method = "spearman") %>%
+        mutate(p.value.star = insight::format_p(padj, name = NULL, stars_only = TRUE))
+```
+
+```{r}
+top.hits <- filter(cor.count, padj<0.05) %>%
+    arrange(desc(abs(cor))) %>%
+    rownames()
+top.hits.cpm <- filter(cor.cpm, padj<0.05) %>%
+    arrange(desc(abs(cor))) %>%
+    rownames()
+
+# Are these hits overlapped?
+# top.hits %in% top.hits.cpm
+# overlapped genus
+intersect(top.hits, top.hits.cpm)
+```
+
+We found a similar number of significant correlations between LCAT and normalized genus counts (cpm) compared to the previous raw count data. Most significant correlations found with counts were also detected with normalized counts. 
+
+***
+
+## Visualization Function
+```{r function, echo = F}
+cor.plot <- function(microbes, x, y, xlab = paste(x, "count"), ylab = "LCAT", color_by = "subject", cor.res = cor.count){
+    df <- data.frame(
+        x = microbes[x,],
+        y = y,
+        color = pdata[,color_by]
+    ) 
+    stats <- as.numeric(cor.count[x,c(1,3)]) %>%
+        signif(3)
+    p <- ggplot(df, aes(x=x, y=y)) +
+        geom_point(aes(color = color)) +
+        geom_smooth(method = "lm") +
+        labs(x = xlab, y = ylab) +
+        theme_bw()
+    xmax <- max(df$x)
+    ymax <- max(df$y)
+    p <- p +
+        annotate(
+            "text", x = xmax*0.8, y = c(ymax, ymax*0.99), 
+            label = paste0(c("rho = ", "padj = "), stats)
+        )
+    return(p)
+}
+```
+
+***
+
+## Correlation plot with Bifidobacterium Adjusted Pvalue 
+```{r echo = F}
+colnames(pdata)
+cor.plot(microbes = genus.cpm, x = "Bifidobacterium", y = LCAT, ylab = "LCAT", color_by = "trt", cor.res = cor.count) +
+    scale_x_log10()
+```
+
+***
+
+## All overlapped Correlation plot for Adjusted Pvalue < 0.05
+```{r echo = F, warning = F}
+overlapped <- intersect(top.hits, top.hits.cpm)
+for(i in overlapped){
+    plots <- cor.plot(microbes = genus.cpm, x = i, y = LCAT, xlab = paste(i, "CPM"), ylab = "LCAT", color_by = "subject", cor.res = cor.cpm) +
+            scale_x_log10()
+    print(plots)
+}
+
+```
+
+***
+
+## Table of Correlation (normalized)
+```{r}
+datatable(cor.cpm, colnames = c("Genus","Spearman Correlation (rho)","p-value","Adjusted p-value","Sig level")) %>%
+        formatRound(columns = "cor", digits = 2) %>%
+        formatRound(columns = c("pval","padj"), digits = 3)
+```
+
+## Table of Correlation (unnormalized)
+```{r}
+datatable(cor.count, colnames = c("Genus","Spearman Correlation (rho)","p-value","Adjusted p-value","Sig level")) %>%
+        formatRound(columns = "cor", digits = 2) %>%
+        formatRound(columns = c("pval","padj"), digits = 3)
+```
+
+At family level: you can easily do this by changing "genus" in line 59 to "family" or any taxonomic levels you are interested in and re-run from the beginning.
+
+```{r}
+taxa <- readRDS(here("microbiome","data","taxa.rds"))
+LCAT.id <- paste0(plate.merge$subject, plate.merge$treatment, plate.merge$timepoint)
+taxa.id <- paste0(taxa$pdata$subject, tolower(taxa$pdata$trt), taxa$pdata$timepoint)
+
+overlapped.id <- taxa.id %in% LCAT.id
+
+genus <- summarize_feature(taxa, "family")[,overlapped.id]
+
+pdata <- genus$pdata # metadata of subjects
+genus <- genus$edata %>%
+        `colnames<-`(taxa.id[overlapped.id]) # OTU count table at the genus level
+
+var0 <- apply(genus, 1, function(x)var(x)==0) # remove genus with variance == 0
+
+sum(var0)
+genus <- genus[!var0, ]
+
+## Remove Outlier (Sample # 74 / Sample ID 223B)
+genus <- genus[, colnames(genus)!="223fiberpost"]
+genus.cpm <- apply(genus, 2, function(x){x/sum(x)*1000000}) # total count = 1M
+
+```
+
+## Correlation analysis
+
+Correlation between microbes (family) OTU counts and LCAT concentration.
+```{r echo = F, warning = F}
+cor.count <- correlation(microbes = genus, y = LCAT, cor.method = "spearman") %>%
+        mutate(p.value.star = insight::format_p(padj, name = NULL, stars_only = TRUE))
+cor.cpm <- correlation(microbes = genus.cpm, y = LCAT, cor.method = "spearman") %>%
+        mutate(p.value.star = insight::format_p(padj, name = NULL, stars_only = TRUE))
+top.hits <- cor.count %>%
+    filter(padj<0.05) %>%
+    arrange(desc(abs(cor))) %>%
+    rownames()
+top.hits.cpm <- cor.cpm %>%
+    filter(padj<0.05) %>%
+    arrange(desc(abs(cor))) %>%
+    rownames()
+genus.family <- taxa$fdata %>%
+    select(kingdom:genus) %>%
+    filter(genus %in% overlapped) %>%
+    pull("family") %>%
+    unique
+```
+
+These families (`r intersect(top.hits, top.hits.cpm)`) are overllaped in normalized and raw count data. 
+
+These (`r genus.family`)are the families of significantly correlated genus.
