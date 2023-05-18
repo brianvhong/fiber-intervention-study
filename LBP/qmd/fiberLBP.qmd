@@ -1,0 +1,219 @@
+---
+title: "LBP"
+format: html
+editor: visual
+---
+
+## Fiber Study LBP concentration
+
+```{r include=FALSE}
+library(tidyverse)
+library(readxl)
+library(lmerTest)
+library(emmeans)
+library(multcomp)
+library(car)
+```
+
+```{r echo=FALSE}
+metadata <- read.csv("USANA Study Clinical Meta Data Sheet copy.csv")
+metadata$sample <- paste0("SPL", metadata$sample)
+metadata$subject <- factor(metadata$subject)
+LBP1.40.1 <- read_xlsx("fslbp1-40.xlsx", range = "C46:N54")
+LBP1.40.2 <- read_xlsx("fslbp1-40.xlsx", range = "C59:N67")
+LBP1.40.3 <- read_xlsx("fslbp1-40.xlsx", range = "C72:N80")
+LBP41.80.1 <- read_xlsx("fslbp41-80.xlsx", range = "C51:N59")
+LBP41.80.2 <- read_xlsx("fslbp41-80.xlsx", range = "C64:N72")
+LBP41.80.3 <- read_xlsx("fslbp41-80.xlsx", range = "C77:N85")
+STD = rep(50*0.5^seq(0, 6), each = 2) # 0=blank
+
+# ---------------------Sample 1-40 -------------------------
+
+names <- rep(paste0("SPL", 1:40), each = 2)
+
+LBP1.40 <- list(rep1 = LBP1.40.1, rep2 = LBP1.40.2, rep3 = LBP1.40.3)
+
+# STD tables:
+
+LBP1.40.std <- lapply(names(LBP1.40), function(x){
+    read.list <- LBP1.40[[x]] %>% 
+        as.matrix() %>% 
+        as.numeric()
+    blank <- read.list[(length(STD)+1):(length(STD)+2)]
+    blank <- mean(blank)
+    
+    LBP.std <- data.frame(
+        std = STD,
+        read = read.list[1:length(STD)]-blank,
+        replicate = x
+    )
+    
+}) %>%
+    Reduce(rbind, .)
+
+# Sample tables:
+
+LBP1.40.sample <- lapply(names(LBP1.40), function(x){
+    read.list <- LBP1.40[[x]] %>% 
+        as.matrix() %>% 
+        as.numeric()
+    blank <- read.list[(length(STD)+1):(length(STD)+2)]
+    blank <- mean(blank)
+    LBP.sample <- data.frame(
+        sample = names,
+        read = read.list[(length(STD)+3):length(read.list)]-blank,
+        replicate = x
+    )
+})
+
+# ---------------------Sample 41-80 -------------------------
+
+names <- c(rep(paste0("SPL", 41:48), 2), rep(paste0("SPL", 49:56), 2), rep(paste0("SPL", 57:64), 2), rep(paste0("SPL", 65:72), 2), rep(paste0("SPL", 73:80), 2))
+
+LBP41.80 <- list(rep1 = LBP41.80.1, rep2 = LBP41.80.2, rep3 = LBP41.80.3)
+
+# STD tables:
+
+LBP41.80.std <- lapply(names(LBP41.80), function(x){
+    read.list <- LBP41.80[[x]] %>% 
+        as.matrix() %>% 
+        as.numeric()
+    blank <- read.list[(length(STD)+1):(length(STD)+2)]
+    blank <- mean(blank)
+    LBP.std <- data.frame(
+        std = STD,
+        read = read.list[1:length(STD)]-blank,
+        replicate = x
+    )
+}) %>%
+    Reduce(rbind, .)
+
+# Sample tables:
+
+LBP41.80.sample <- lapply(names(LBP41.80), function(x){
+    read.list <- LBP41.80[[x]] %>% 
+        as.matrix() %>% 
+        as.numeric()
+    blank <- read.list[(length(STD)+1):(length(STD)+2)]
+    blank <- mean(blank)
+
+    LBP.sample <- data.frame(
+        sample = names,
+        read = read.list[(length(STD)+3):length(read.list)]-blank,
+        replicate = x
+    )
+})
+
+```
+
+### Standard Curve
+
+```{r std curve, echo=FALSE}
+LBP1.40.std <- LBP1.40.std %>% mutate(plate = "plate1")
+LBP41.80.std <- LBP41.80.std %>% mutate(plate = "plate2")
+
+LBP.std <- rbind(LBP1.40.std, LBP41.80.std)
+
+# standard curve:
+
+ggplot(LBP.std, aes(read, std, color = interaction(replicate, plate))) +
+    geom_point()+
+    geom_smooth(method = "lm", se = F)+
+    geom_vline(xintercept = c(sapply(LBP1.40.sample, function(x)max(x$read)), 
+                              sapply(LBP41.80.sample, function(x)max(x$read))))
+```
+
+The correlation was not linear. The standard with a concentration of 50 µg/ml is out of the linear range, and a standard curve up to 25 µg/ml can cover the reading range of samples.
+
+New standard curve:
+
+```{r new std curve, echo=FALSE}
+filter(LBP.std, std < 50) %>%
+    ggplot(aes(read, std, color = interaction(replicate, plate))) +
+    geom_point()+
+    geom_smooth(method = "lm", se = F)
+```
+
+### Equation of standard curves
+
+```{r, echo=FALSE}
+LBP.std <- filter(LBP.std, std < 50)
+LBP1.40.sample <- lapply(LBP1.40.sample, function(x){
+    print(x$replicate[1])
+    df <- filter(LBP.std, replicate==x$replicate[1] & plate == "plate1")
+    mod <- lm(std~read, df)
+    sum.mod <- c(mod$coefficients, "r.squared" = summary(mod)$r.squared)
+    print(sum.mod)
+    x$conc <- predict(mod, x)
+    return(x)
+})
+
+LBP41.80.sample <- lapply(LBP41.80.sample, function(x){
+    print(x$replicate[1])
+    df <- filter(LBP.std, replicate==x$replicate[1] & plate == "plate2")
+    mod <- lm(std~read, df)
+    sum.mod <- c(mod$coefficients, "r.squared" = summary(mod)$r.squared)
+    print(sum.mod)
+    x$conc <- predict(mod, x)
+    return(x)
+})
+
+```
+
+### Stat
+
+```{r, echo=FALSE}
+LBP.sample <- rbind(Reduce(rbind, LBP1.40.sample), 
+                    Reduce(rbind, LBP41.80.sample))
+
+
+LBP.sample <- left_join(LBP.sample, metadata, by = "sample")
+# LBP.sample$timepoint <- factor(LBP.sample$timepoint, levels = c("pre", "post"))
+
+# model
+mod <- lmer(conc~timepoint*treatment + (1|subject), LBP.sample)
+
+qqnorm(residuals(mod))
+qqline(residuals(mod))
+shapiro.test(residuals(mod))
+
+anova(mod, ddf = "K")
+
+means <- emmeans(mod, specs = c("timepoint"), by = "treatment")
+
+contrast(means, method = "pairwise")
+```
+
+The raw concentration violates the normal distribution assumption. Try square root transformation below.
+
+```{r, echo=FALSE}
+mod <- lmer(sqrt(conc)~timepoint*treatment + (1|subject), LBP.sample)
+
+qqnorm(residuals(mod))
+qqline(residuals(mod))
+shapiro.test(residuals(mod))
+
+anova(mod, ddf = "K")
+
+means <- emmeans(mod, specs = c("timepoint"), by = "treatment")
+
+contrast(means, method = "pairwise")
+```
+
+The QQ plot looks better after the square root transformation.
+
+### Visualization
+
+```{r, echo=FALSE}
+df <- LBP.sample %>% 
+    group_by(sample, timepoint, treatment, subject) %>%
+    summarise(conc = mean(conc)) %>%
+    mutate(timepoint = factor(timepoint, levels=c("pre", "post")))
+
+ggplot(df, aes(timepoint, sqrt(conc))) +
+    geom_boxplot() +
+    geom_point(aes(color = subject)) +
+    geom_line(aes(color = subject, group = subject)) +
+    facet_wrap(~treatment) +
+    theme_bw()
+```

@@ -42,7 +42,7 @@ pacman::p_load(HTSet,
 
 > LCAT activity was normalized to quality control (ERCC2 plasma) by taking the ratio of the Sample LCAT activity (390nm/470nm) / ERCC2 Plasma LCAT activity (390nm/470nm). 
 
-> Sample #73 or subject 223B was a clear outlier, likely due to technical error, and removed from correlation analysis. If there is another partial kit avaiable, I would suggest rerunning sample #73 along with an ERCC2 plasma as QC.
+> Sample #74 or subject 223B was a clear outlier, likely due to technical error, and removed from correlation analysis. If there is another partial kit avaiable, I would suggest rerunning sample #73 along with an ERCC2 plasma as QC.
 
 ***
 

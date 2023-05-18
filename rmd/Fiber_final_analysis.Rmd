@@ -1,0 +1,1145 @@
+---
+title: "LBP and LCAT Analysis - Fiber Study"
+author: "Brian"
+date: "2023-05-17"
+output: 
+    html_document:
+        toc: true
+        toc_float: true
+        code_folding: hide
+---
+
+## Objective
+
+To determine whether LBP concentration and LCAT activity changed from fiber supplementation in healthy participants and to explore if LPB concentration and LCAT activity is correlated with subject characteristics and microbes.
+
+LCAT was normalized to QC plasma pool.
+
+***
+
+## Statistical Analysis
+
+The statistical analyses for this study were conducted using R software (version 4.2.2), a programming language and free software environment for statistical computing and graphics supported by the R Foundation for Statistical Computing.
+
+For the analysis of repeated measures data, a linear mixed model approach was employed. This method is particularly suitable for repeated measures data as it accounts for the within-subject correlation that arises from repeated measurements on the same subject over time. To implement this model, the lmerTest package in R was used, which provides p-values in type III analysis of variance tables with Satterthwaite's or Kenward-Roger's methods for denominator degrees-of-freedom approximation.
+
+Post-hoc tests on the linear mixed models were performed using the emmeans package. This package provided estimated marginal means (EMMs, previously known as least-squares means in the context of traditional regression models) for many linear, generalized linear, and mixed models.
+
+To assess the relationships between variables, a correlation analysis was performed. Because our data involved repeated observations on the same subjects, a standard correlation analysis was not appropriate as it would not account for the non-independence of the observations. Instead, a repeated measures correlation analysis was performed using the rmcorr package in R. This method provides a measure of the common association among repeated measures for two variables, which is particularly useful when the measures are collected on the same metric and over the same timeframe.
+
+All statistical tests were two-tailed, and a p-value of less than 0.05 was considered statistically significant. This threshold was chosen to control the Type I error rate and to balance between the risk of false positives and the risk of false negatives.
+
+***
+
+## Shortened statistical analysis method for manuscript
+
+All analyses were performed using R version 4.2.2. A linear mixed model was implemented with the lmerTest package to account for repeated measures. Post-hoc tests on these models utilized the emmeans package. Correlations between variables, considering the repeated measures nature of the data, were analyzed using the rmcorr package and adjusted for multiple testing using the Benjamini-Hochberg method. Statistical significance was set at a p-value of less than 0.05.
+
+***
+
+## Packages
+```{r}
+if(!any(rownames(installed.packages()) == "pacman"))
+        install.packages("pacman")
+if(!any(rownames(installed.packages()) == 'HTSet'))
+        devtools::install_github("zhuchcn/HTSet")
+
+
+pacman::p_load(here,
+               tidyverse,
+               rstatix,
+               DT,
+               ggpubr,
+               readxl,
+               reshape2,
+                forcats,
+               drc,
+               emmeans,
+               lmerTest,
+               rmcorr,
+               HTSet,
+               cowplot,
+               RColorBrewer,
+               ggsignif)
+```
+
+
+## Data Cleaning
+```{r message = F}
+lcat <- readRDS(here("LCAT","data","LCAT_summary_filter_223B.rds")) 
+standard <- read_excel(here("LBP","standard","standard_lbp.xlsx"))
+subject_characteristic <- read_csv(here("subject_characteristics","USANA Study Clinical Meta Data Sheet copy.csv")) |>
+    mutate(sample = as.character(sample)) |>
+    na.omit()
+plate_1 <- read_excel(here("LBP","raw","fslbp1-40.xlsx"), 
+                    sheet = "Sheet1",
+                    range = "B46:N54",
+                    
+) |>
+        column_to_rownames(var = 1) |>
+        as.matrix() |>
+        melt(value.name = "absorbance",
+             na.rm = TRUE)
+plate_1$position <- paste0(plate_1$Var1, plate_1$Var2)
+
+        
+plate_2 <- read_excel(here("LBP","raw","fslbp41-80.xlsx"), 
+                    sheet = "Sheet1",
+                    range = "B77:N85",
+                    
+) |>
+        column_to_rownames(var = 1) |>
+        as.matrix() |>
+        melt(value.name = "absorbance",
+             na.rm = TRUE)
+plate_2$position <- paste0(plate_2$Var1, plate_2$Var2)
+
+plate_layout_1 <-  read_excel(here("LBP","plate_design","fslbp1-40_plate_design.xlsx"),
+                    range = "A1:M9",
+                    sheet = "Sheet1"
+                    
+) |>
+        column_to_rownames(var = 1) |>
+        as.matrix() |>
+        melt() |>
+        rename(sample = "value") |>
+        filter(!sample %in% "NA")
+plate_layout_1$position <- paste0(plate_layout_1$Var1, plate_layout_1$Var2) 
+
+
+plate_layout_2 <-  read_excel(here("LBP","plate_design","fslbp41-80_plate_design.xlsx"),
+                    range = "A1:M9",
+                    sheet = "Sheet1"
+                    
+) |>
+        column_to_rownames(var = 1) |>
+        as.matrix() |>
+        melt() |>
+        rename(sample = "value") |>
+        filter(!sample %in% "NA")
+plate_layout_2$position <- paste0(plate_layout_2$Var1, plate_layout_2$Var2) 
+
+plate_1 <- plate_1 |>
+    left_join(plate_layout_1) |>
+    mutate(sample = gsub(" ", "",sample))
+
+plate_2 <- plate_2 |>
+    left_join(plate_layout_2)
+```
+
+
+## LBP Standard: Four Parameter Logistic Regression
+```{r message = F}
+
+plate_1_standard <- plate_1 |>
+    left_join(standard)
+
+model1<-drm(absorbance~conc_pg_ml,
+             fct=LL.4(names=c("Slope", "Lower", "Upper", "ED50")),
+data=plate_1_standard)
+plot(model1,
+     main = "Plate 1")
+
+
+plate_2_standard <- plate_2 |>
+    left_join(standard)
+
+model2<-drm(absorbance~conc_pg_ml,
+             fct=LL.4(names=c("Slope", "Lower", "Upper", "ED50")),
+data=plate_2_standard)
+plot(model2,
+     main = "Plate 2")
+
+```
+
+> For most ELISA, often linear regression does not work. An appropriate curve is usually a four parameter logistic regression.
+
+## Estimate Concentration
+
+```{r message = F}
+
+### Plate 1
+dilution_factor <- 800
+
+plate_1_filter <- plate_1 |>
+    filter(!grepl(pattern = "S", x = sample))
+
+conc <-as.data.frame(ED(model1,plate_1_filter$absorbance,type="absolute",display=F))
+conc_pg_ml <- conc$Estimate * dilution_factor
+
+plate_1_filter <- cbind(plate_1_filter, conc_pg_ml)
+
+### Plate 2
+
+plate_2_filter <- plate_2 |>
+    filter(!grepl(pattern = "S", x = sample))
+
+conc <-as.data.frame(ED(model2,plate_2_filter$absorbance,type="absolute",display=F))
+conc_pg_ml <- conc$Estimate * dilution_factor
+
+plate_2_filter <- cbind(plate_2_filter, conc_pg_ml)
+
+plate_combined <- plate_1_filter |>
+    bind_rows(plate_2_filter) |>
+    mutate(conc_ng_ml = conc_pg_ml/1000) |>
+    left_join(subject_characteristic) |>
+    mutate(treatment = ifelse(treatment=="A", "fiber", "placebo"),
+           treatment = factor(treatment, levels = c("placebo","fiber")),
+           timepoint = factor(timepoint, levels = c("pre", "post")))
+
+plate_summary <- plate_combined |>
+    group_by(subject, treatment, timepoint, gender) |>
+    summarise(mean_conc_ng_ml = mean(conc_ng_ml),
+              sd = sd(conc_ng_ml),
+              cv = sd/mean_conc_ng_ml*100) |>
+    mutate(subject = as.factor(subject))
+
+datatable(plate_summary, colnames = c("Subject","Treatment","Timepoint","Gender","LBP (ng/mL)","SD","CV (%)")) |>
+    formatRound(columns = c("mean_conc_ng_ml","sd","cv"), digits = 2)
+```
+
+
+## Mixed Linear Model
+
+```{r message = F}
+
+mix_model <- lmer(log(mean_conc_ng_ml) ~ treatment*timepoint + (1|subject), data = plate_summary)
+
+# Check the assumption: normality
+shapiro.test(resid(mix_model))
+# ANOVA
+summary(mix_model)
+anova(mix_model, ddf="K")
+# post hoc
+emm <- emmeans(mix_model, specs = c("treatment", "timepoint"), lmer.df = "K")
+con <- contrast(emm, interaction = "pairwise", lmer.df = "K")
+con
+summary_con <- summary(con)
+p_value <- round(summary_con$p.value,3)
+```
+
+>  The estimated difference between fiber and placebo at the "post" timepoint compared to the "pre" timepoint is -0.0906, but it is not statistically significant (p-value = 0.446), indicating that there is no significant difference between fiber and placebo in their effect on the response variable at different timepoints.
+
+## Table Summary
+```{r}
+treatment_summary <- plate_combined |>
+    group_by(treatment, timepoint) |>
+    summarise(mean_conc_ng_ml = mean(conc_ng_ml),
+              sd = sd(conc_ng_ml))
+
+datatable(treatment_summary, colnames = c("Treatment","Timepoint","LBP (ng/mL)","SD")) |>
+    formatRound(columns = c("mean_conc_ng_ml","sd"), digits = 2)
+
+#write_csv(treatment_summary, here("output","LBP_treatment_summary.csv"))
+```
+
+## LBP Figure
+```{r message = F}
+# boxplot, all data points
+LBP_plot <- ggplot(plate_summary, aes(timepoint, mean_conc_ng_ml))+
+    geom_boxplot()+
+    geom_point(aes(color = subject))+
+    geom_line(aes(color = subject, group = subject)) +
+    facet_grid(~treatment) +
+    theme_bw() +
+        labs(y = "LBP (ng/mL)", x = "Timepoint", title = paste0("P = ",p_value))
+
+LBP_plot
+
+#ggsave(plot = LBP_plot, filename  = here("figures","LPB_plot.jpg"),
+       #dpi = 300,
+       #width = 8,
+       #height = 6)
+```
+
+> No statistically significant difference in LBP between pre vs post among treatments. P-value is provided on the log scale (p = 0.446)
+
+## LBP Responder vs non Responder
+```{r width = 8, height = 6}
+# Calculate mean conc_ng_ml for each subject, timepoint, and treatment
+plate_responder <- plate_combined %>%
+  group_by(subject, treatment, timepoint) %>%
+  summarise(mean_conc_ng_ml = mean(conc_ng_ml), .groups = "drop") %>%
+  pivot_wider(names_from = timepoint, values_from = mean_conc_ng_ml)
+
+# Calculate change in LBP for each subject and classify as responder or non-responder
+plate_responder <- plate_responder %>%
+  mutate(change_in_LBP = post - pre,
+         response = ifelse(change_in_LBP < median(change_in_LBP, na.rm = TRUE), "responder", "non-responder"))
+
+# Subset to fiber treatment group
+plate_responder_fiber <- plate_responder %>%
+  filter(treatment == "fiber")
+
+# convert to long format for plotting
+plate_long_fiber <- plate_responder_fiber %>%
+  pivot_longer(cols = c(pre, post), names_to = "timepoint", values_to = "conc_ng_ml") |>
+    mutate(subject = as.factor(subject),
+           timepoint = as.factor(timepoint),
+           response = as.factor(response),
+           timepoint = factor(timepoint, levels = c("pre", "post")))
+
+# Now, we should have a single boxplot for each combination of response and timepoint
+p <- ggplot(plate_long_fiber, aes(x = timepoint, y = conc_ng_ml, fill = response)) +
+  geom_boxplot() +
+  geom_point(aes(color = subject)) +
+  geom_line(aes(group = subject, color = subject)) +
+  facet_grid(. ~ response) +
+  labs(x = "Timepoint", y = "LBP Concentration (ng/mL)", fill = "Response", color = "Subject") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+# Add significance indicators separately for each response type
+LBP_responder <- p + geom_signif(data = subset(plate_long_fiber, response == "responder"), 
+                aes(x = timepoint, y = conc_ng_ml), 
+                comparisons = list(c("pre", "post")), 
+                test = "t.test", 
+                test.args = list(paired = TRUE),
+                map_signif_level = TRUE) +
+  geom_signif(data = subset(plate_long_fiber, response == "non-responder"), 
+              aes(x = timepoint, y = conc_ng_ml), 
+              comparisons = list(c("pre", "post")), 
+              test = "t.test", 
+              test.args = list(paired = TRUE),
+              map_signif_level = TRUE)
+LBP_responder
+#ggsave(plot = LBP_responder, filename = here("figures","LBP_responders.jpg"),
+       #dpi = 300,
+      # width = 8,
+       #height = 6)
+
+
+                                 
+```
+
+> When separated by responders vs responders (those who have decrease LBP compared to the median change in pre vs post), we see significant differences in LBP concentration where post timepoint fiber supplementation results in decrease LBP. 
+
+## LBP Separated by Median Pre LBP
+```{r}
+# Calculate mean conc_ng_ml for each subject, timepoint, and treatment
+plate_responder <- plate_combined %>%
+  group_by(subject, treatment, timepoint) %>%
+  summarise(mean_conc_ng_ml = mean(conc_ng_ml), .groups = "drop") %>%
+  pivot_wider(names_from = timepoint, values_from = mean_conc_ng_ml)
+
+# Calculate change in LBP for each subject and classify as responder or non-responder
+plate_responder <- plate_responder %>%
+  mutate(change_in_LBP = post - pre,
+         response = ifelse(change_in_LBP < median(change_in_LBP, na.rm = TRUE), "responder", "non-responder"))
+
+# Subset to fiber treatment group
+plate_responder_fiber <- plate_responder %>%
+  filter(treatment == "fiber")
+
+# Calculate median LBP for grouping
+median_LBP <- median(plate_responder_fiber$pre, na.rm = TRUE)
+
+# Classify as above or below median LBP
+plate_responder_fiber <- plate_responder_fiber %>%
+  mutate(group = ifelse(pre < median_LBP, "below median", "above median"))
+
+# Convert to long format for plotting
+plate_long_fiber <- plate_responder_fiber %>%
+  pivot_longer(cols = c(pre, post), names_to = "timepoint", values_to = "conc_ng_ml") %>%
+  mutate(subject = as.factor(subject),
+         timepoint = as.factor(timepoint),
+         response = as.factor(response),
+         group = as.factor(group),
+         timepoint = factor(timepoint, levels = c("pre", "post")))
+
+
+
+
+
+# Create the plot
+p <- ggplot(plate_long_fiber, aes(x = timepoint, y = conc_ng_ml, fill = group)) +
+  geom_boxplot() +
+  geom_point(aes(color = subject)) +
+  geom_line(aes(group = subject, color = subject)) +
+  facet_grid(.~ group) +
+  labs(x = "Timepoint", y = "LBP Concentration (ng/mL)", fill = "Group", color = "Subject") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+# Add significance indicators separately for each response type and group
+LBP_responder <- p +
+  geom_signif(data = subset(plate_long_fiber, group == "above median"), 
+              aes(x = timepoint, y = conc_ng_ml), 
+              comparisons = list(c("pre", "post")), 
+              test = "t.test", 
+              test.args = list(paired = TRUE),
+              map_signif_level = TRUE) +
+  geom_signif(data = subset(plate_long_fiber, group == "below median"), 
+              aes(x = timepoint, y = conc_ng_ml), 
+              comparisons = list(c("pre", "post")), 
+              test = "t.test", 
+              test.args = list(paired = TRUE),
+              map_signif_level = TRUE)
+
+LBP_responder
+
+# Calculate p-values for each group
+p_values_above_median <- with(subset(plate_long_fiber, group == "above median"), t.test(conc_ng_ml ~ timepoint, paired = TRUE)$p.value)
+p_values_below_median <- with(subset(plate_long_fiber, group == "below median"), t.test(conc_ng_ml ~ timepoint, paired = TRUE)$p.value)
+
+# Create a table with the p-values
+p_value_table <- data.frame(
+  group = c("above median", "below median"),
+  P_Value = c(p_values_above_median, p_values_below_median)
+)
+plate_long_fiber_summary <- plate_long_fiber |>
+    group_by(group, timepoint) |>
+    summarize(mean_conc_ng_ml = mean(conc_ng_ml),
+              sd = sd(conc_ng_ml))
+
+
+# Print the table
+datatable(plate_long_fiber_summary)
+datatable(p_value_table)
+
+ggsave(LBP_responder, filename = here("figures","separate_LBP_median.jpg"),
+       dpi = 300,
+       width = 8,
+       height = 6)
+
+
+```
+
+> Individuals with above-median pre-LBP levels showed a significant decrease in post-LBP levels after fiber treatment (P < 0.020).
+
+***
+
+### Summary of LBP Responder vs non responder (Fiber Only)
+```{r}
+# Calculate mean and standard deviation of conc_ng_ml for each combination of response and timepoint
+summary_table <- plate_long_fiber %>%
+  group_by(response, timepoint) %>%
+  summarise(
+    mean_conc_ng_ml = mean(conc_ng_ml, na.rm = TRUE),
+    sd_conc_ng_ml = sd(conc_ng_ml, na.rm = TRUE)
+  )
+
+# Perform paired t-tests and extract p-values
+p_values <- plate_long_fiber %>%
+  group_by(response) %>%
+  summarise(p_value = t.test(conc_ng_ml[timepoint == "pre"], conc_ng_ml[timepoint == "post"], paired = TRUE)$p.value)
+
+# Merge p-values with the summary table
+result_table <- left_join(summary_table, p_values, by = "response")
+# Round values to three decimal places
+result_table$mean_conc_ng_ml <- format(result_table$mean_conc_ng_ml, nsmall = 3)
+result_table$sd_conc_ng_ml <- format(result_table$sd_conc_ng_ml, nsmall = 3)
+result_table$p_value <- format(result_table$p_value, nsmall = 3)
+# Create datatable
+datatable(result_table,
+          options = list(pageLength = 10, lengthChange = FALSE),
+          colnames = c("Response", "Timepoint", "Mean conc_ng_ml", "SD conc_ng_ml", "p-value"))
+
+```
+
+> No difference in groups that had fiber treatment first. 
+
+
+## LBP: Fiber treated first only
+```{r}
+# Filter the data for fiber treatment and selected subjects
+plate_fiber_first <- plate_combined %>%
+  filter(treatment == "fiber" & subject %in% c("201", "203", "205", "209", "213", "216", "222", "223", "224")) |>
+    mutate(subject = as.factor(subject))
+             
+
+
+# Create a separate boxplot plot
+boxplot_plot <- ggplot(plate_fiber_first, aes(x = timepoint, y = conc_ng_ml, fill = timepoint)) +
+  geom_boxplot() +
+  geom_point(aes(color = subject)) +
+    geom_line(aes(group = subject, color = subject)) +
+  geom_signif(comparisons = list(c("pre", "post")), test = "t.test", map_signif_level = TRUE, step_increase = 0.05) +
+  labs(x = "Timepoint", y = "LBP Concentration", fill = "Timepoint", color = "Subject") +
+  theme_minimal()
+boxplot_plot
+
+ggsave(boxplot_plot, filename = here("figures","fiber_first_lbp.jpg"),
+       dpi = 300,
+       width = 8,
+       height = 6)
+
+```
+
+> No significant difference when comparing "Fiber" supplemented first participants
+
+## LCAT activity Table and Figure
+```{r message = F}
+
+mix_model_lcat <- lmer(norm.LCAT.ratio ~ treatment*timepoint + (1|subject), data = lcat)
+# Check the assumption: normality
+#shapiro.test(resid(mix_model_lcat))
+# post hoc
+emm <- emmeans(mix_model_lcat, specs = c("treatment", "timepoint"), lmer.df = "K")
+con <- contrast(emm, interaction = "pairwise", lmer.df = "K")
+summary_con <- summary(con)
+p_value_lcat <- round(summary_con$p.value,3)
+
+lcat_summary <- lcat |>
+    group_by(subject, treatment, timepoint) |>
+    summarise(mean_norm.LCAT.ratio = mean(norm.LCAT.ratio),
+              sd = sd(norm.LCAT.ratio),
+              cv = sd/mean_norm.LCAT.ratio) |>
+    mutate(treatment = factor(treatment, levels = c("placebo","fiber")),
+           timepoint = factor(timepoint, levels = c("pre", "post")),
+           subject = as.factor(subject))
+
+lcat_treatment_summary <- lcat |>
+    group_by(treatment, timepoint) |>
+    summarise(mean_norm.LCAT.ratio = mean(norm.LCAT.ratio),
+              sd = sd(norm.LCAT.ratio))
+
+datatable(lcat_treatment_summary, colnames = c("Treatment","Timepoint","Normalized LCAT Activity","SD")) |>
+    formatRound(columns = c("mean_norm.LCAT.ratio","sd"), digits = 3)
+
+# boxplot, all data points
+LCAT_plot <- ggplot(lcat_summary, aes(timepoint, mean_norm.LCAT.ratio))+
+    geom_boxplot()+
+    geom_point(aes(color = subject))+
+    geom_line(aes(color = subject, group = subject)) +
+    facet_grid(~treatment) +
+    theme_bw() +
+        labs(y = "Normalized LCAT Activity ", x = "Timepoint", title = paste0("P = ",p_value_lcat))
+
+LCAT_plot
+
+ggsave(plot = LCAT_plot, filename = here("figures","LCAT_plot.jpg"),
+                                dpi = 300,
+       width = 8,
+       height = 6)
+```
+
+> LCAT activity was not significantly different between pre vs post among treatment groups.
+
+***
+
+## LBP and LCAT Plot
+```{r}
+# Extract the color legend
+common_legend <- get_legend(LCAT_plot + theme(legend.position="bottom"))
+
+# Remove color legends from both plots
+LBP_plot <- LBP_plot + theme(legend.position = "none")
+LCAT_plot <- LCAT_plot + theme(legend.position = "none")
+
+# Combine the plots vertically
+combined_plots <- plot_grid(LBP_plot, LCAT_plot, labels = c("A", "B"), ncol = 2)
+
+# Combine the plots with the common legend
+final_plot <- plot_grid(combined_plots, common_legend, ncol = 1, rel_heights = c(1, 0.25))
+
+print(final_plot)
+ggsave(plot = final_plot, filename = here("figures","LBP_LCAT_plot.jpg"),
+       dpi = 300,
+       height = 6,
+       width = 8)
+```
+
+
+## Log LBP Correlation with LCAT activity
+```{r message = F}
+lcat <- lcat |>
+    dplyr::select(subject, treatment, timepoint, norm.LCAT.ratio) |>
+    mutate(subject = as.factor(subject))
+
+lcat <- lcat |>
+    left_join(plate_summary)
+
+cor <- rmcorr(subject, measure1 = norm.LCAT.ratio, measure2 = log(mean_conc_ng_ml), dataset = lcat)
+cor
+```
+
+> Repeated measure correlation shows that LCAT and LBP are not significantly correlated (r = -0.06, P = 0.630).
+
+
+## Log LBP Repeated Correlation with subject characteristics
+```{r warning = F, message = F}
+LBP <- log(plate_summary$mean_conc_ng_ml)
+# Extract the columns of interest
+data_subset <- subject_characteristic[, 9:22]
+# Assuming 'subject' is the name of your grouping variable
+group_id <- subject_characteristic$subject
+
+# Add the grouping variable and the repeated measures variable to the data subset
+data_subset <- cbind(group_id = group_id, LBP = LBP, data_subset)
+
+
+
+# List to store the results
+results_list <- list()
+
+# Loop to perform rmcorr for each variable
+for(i in 3:(ncol(data_subset))) {
+    results <- rmcorr(dataset = data_subset, 
+                      participant = "group_id", 
+                      measure1 = "LBP", 
+                      measure2 = names(data_subset)[i])
+    results_list[[names(data_subset)[i]]] <- results
+}
+
+
+# Convert list to data frame
+results_df <- results_list %>%
+  purrr::map_dfr(function(x) {
+    tibble(
+      Rmcorr = x$r,
+      CI_lower = x$CI[1],
+      CI_upper = x$CI[2],
+      p_value = x$p,
+    padj = p.adjust(p_value, method = "BH"),
+    sig = insight::format_p(padj, name = NULL, stars_only = TRUE))
+  }, .id = "Variable")
+
+results_df <- results_df |>
+    mutate(padj = p.adjust(p_value, method = "BH"),
+           sig = insight::format_p(padj, name = NULL, stars_only = TRUE))
+# Display as data table
+datatable(results_df) |>
+    formatRound(columns = c("Rmcorr","CI_lower","CI_upper","p_value","padj"), digits = 3)
+
+```
+
+> The analysis examined the relationship between HDL (high-density lipoprotein) and LBP (lipopolysaccharide-binding protein) concentration using repeated measures correlation. The results showed a significant positive correlation between HDL and LBP concentration (Repeated measure r = 0.271, p = 0.035). However, after adjusting for multiple testing, the association did not remain statistically significant.
+
+***
+
+## LCAT activity Repeated Correlation with subject characteristics
+```{r warning = F, message = F}
+LCAT <- lcat$norm.LCAT.ratio
+# Extract the columns of interest
+subject_characteristic_subset <- subject_characteristic |>
+    filter(!sample %in% "74")
+data_subset <- subject_characteristic_subset[, 9:22] 
+    
+# Assuming 'subject' is the name of your grouping variable
+group_id <- subject_characteristic_subset$subject 
+    
+    
+
+# Add the grouping variable and the repeated measures variable to the data subset
+data_subset <- cbind(group_id = group_id, LCAT = LCAT, data_subset)
+
+
+
+# List to store the results
+results_list <- list()
+
+# Loop to perform rmcorr for each variable
+for(i in 3:(ncol(data_subset))) {
+    results <- rmcorr(dataset = data_subset, 
+                      participant = "group_id", 
+                      measure1 = "LCAT", 
+                      measure2 = names(data_subset)[i])
+    results_list[[names(data_subset)[i]]] <- results
+}
+
+
+# Convert list to data frame
+
+results_df <- results_list|>
+  purrr::map_dfr(function(x) {
+    tibble(
+      Rmcorr = x$r,
+      CI_lower = x$CI[1],
+      CI_upper = x$CI[2],
+      p_value = x$p
+    )
+  }, .id = "Variable")
+
+results_df <- results_df |>
+    mutate(padj = p.adjust(p_value, method = "BH"),
+           sig = insight::format_p(padj, name = NULL, stars_only = TRUE))
+# Display as data table
+datatable(results_df) |>
+    formatRound(columns = c("Rmcorr","CI_lower","CI_upper","p_value","padj"), digits = 3)
+
+```
+
+> LCAT activity was positively correlated with cholesterol (repeated r = 0.382, p-value = 0.018).
+
+> LCAT activity was positively correlated with HDL (repeated r = 0.391, p-value = 0.018).
+
+> LCAT activity was positively correlated with LDL (repeated r = 0.343, p-value = 0.034).
+
+These results indicate that there is a significant positive correlation between LCAT activity and cholesterol, LCAT activity and HDL, and LCAT activity and LDL. The p-values associated with these correlations indicate the statistical significance of the observed relationships. An adjusted p-value less than the conventional threshold (e.g., 0.05) suggests that the correlation is unlikely to occur by chance.
+
+***
+
+## LBP Correlation with Microbiome
+```{r}
+taxa <- readRDS(here("microbiome","data","taxa.rds"))
+taxa.id <- paste0(taxa$pdata$subject, tolower(taxa$pdata$trt), taxa$pdata$timepoint)
+LBP.id <- paste0(plate_summary$subject, plate_summary$treatment, plate_summary$timepoint)
+overlapped.id <- taxa.id %in% LBP.id
+
+genus <- summarize_feature(taxa, "genus")[,overlapped.id]
+
+pdata <- genus$pdata # metadata of subjects
+genus <- genus$edata %>%
+        `colnames<-`(taxa.id[overlapped.id]) # OTU count table at the genus level
+
+var0 <- apply(genus, 1, function(x)var(x)==0) # remove genus with variance == 0
+
+sum(var0)
+genus <- genus[!var0, ]
+
+genus.cpm <- apply(genus, 2, function(x){x/sum(x)*1000000}) # total count = 1M
+```
+
+```{r}
+rmcorrelation <- function(microbe, y, data){
+    df <- data.frame(
+        subject = factor(pdata$subject),
+        microbe = log(data[microbe,]+1), # log-transformation
+        LBP = y
+    )
+    cor <- rmcorr(subject, measure1 = microbe, measure2 = LBP, dataset = df)
+}
+
+# repeated measure correlation on all genus
+rmcor.res <- lapply(rownames(genus.cpm), function(x)
+    rmcorrelation(x, LBP, data = genus.cpm)) %>%
+    `names<-`(rownames(genus.cpm))
+# extract p-values
+pvals <- sapply(rmcor.res, function(x)x$p) %>%
+    `names<-`(rownames(genus.cpm))
+# padj
+padjs <- p.adjust(pvals, method = "BH")
+
+```
+
+> Microbes counts per million (cpm) were log transformed.
+
+### Significantly correlation between log(LBP) ~ log(microbes)
+```{r}
+rmcor.plot <- function(x, xlab, ylab){
+    df <- x$model$model
+    p <- ggplot(df, aes(x = Measure1, y = Measure2)) +
+        geom_point(aes(colour = factor(Participant), group = factor(Participant))) +
+        geom_line(aes(y = x$model$fitted.values, group = factor(Participant), color = factor(Participant)), linetype = 1) +
+        theme_bw() +
+        labs(x = paste(xlab, "log-transformed"), y = ylab)
+    xmax <- max(df$Measure1)
+    ymax <- max(df$Measure2)
+    p <- p +
+        annotate(
+            "text", x = xmax*0.93, y = c(ymax, ymax*1.2), 
+            label = paste0(c("r = ", "pval = "), signif(c(x$r, x$p), 3))
+        )
+    return(p)
+}
+plots <- lapply(rownames(genus.cpm)[which(pvals<0.05)], function(x){
+    rmcor.plot(rmcor.res[[x]], xlab = x, ylab = "Log(LBP)")
+}) %>%
+    `names<-`(rownames(genus.cpm)[which(pvals<0.05)])
+plots
+```
+
+> 5 Microbes were significantly correlated with LBP (unadjusted p-value). However, none were significant after multiple testing correction. 
+
+***
+
+### Table of Repeated Measure Correlation (LBP and Microbes)
+
+```{r}
+rmcor.cpm <- data.frame(
+    microbes = rownames(genus.cpm),
+    rmcor = sapply(rmcor.res, function(x)x$r),
+    pval = pvals,
+    padj = padjs,
+    sig = insight::format_p(padjs, name = NULL, stars_only = TRUE)
+)
+datatable(rmcor.cpm, colnames = c("Genus","Correlation (r)","p-value","Adjusted p-value","Sig level")) %>%
+        formatRound(columns = "rmcor", digits = 2) %>%
+        formatRound(columns = c("pval","padj"), digits = 3)
+```
+
+
+***
+
+
+
+## LCAT activity Correlation with Microbiome
+```{r}
+taxa <- readRDS(here("microbiome","data","taxa.rds"))
+taxa.id <- paste0(taxa$pdata$subject, tolower(taxa$pdata$trt), taxa$pdata$timepoint)
+LCAT.id <- paste0(lcat$subject, lcat$treatment, lcat$timepoint)
+overlapped.id <- taxa.id %in% LCAT.id
+
+genus <- summarize_feature(taxa, "genus")[,overlapped.id]
+
+pdata <- genus$pdata # metadata of subjects
+genus <- genus$edata %>%
+        `colnames<-`(taxa.id[overlapped.id]) # OTU count table at the genus level
+
+var0 <- apply(genus, 1, function(x)var(x)==0) # remove genus with variance == 0
+
+sum(var0)
+genus <- genus[!var0, ]
+
+genus.cpm <- apply(genus, 2, function(x){x/sum(x)*1000000}) # total count = 1M
+```
+
+```{r}
+rmcorrelation <- function(microbe, y, data){
+    df <- data.frame(
+        subject = factor(pdata$subject),
+        microbe = log(data[microbe,]+1), # log-transformation
+        LBP = y
+    )
+    cor <- rmcorr(subject, measure1 = microbe, measure2 = LCAT, dataset = df)
+}
+
+# repeated measure correlation on all genus
+rmcor.res <- lapply(rownames(genus.cpm), function(x)
+    rmcorrelation(x, LCAT, data = genus.cpm)) %>%
+    `names<-`(rownames(genus.cpm))
+# extract p-values
+pvals <- sapply(rmcor.res, function(x)x$p) %>%
+    `names<-`(rownames(genus.cpm))
+# padj
+padjs <- p.adjust(pvals, method = "BH")
+
+```
+
+> Microbes counts per million (cpm) were log transformed.
+
+### Significantly correlation between Normalized LCAT activity ~ log(microbes)
+```{r}
+rmcor.plot <- function(x, xlab, ylab){
+    df <- x$model$model
+    p <- ggplot(df, aes(x = Measure1, y = Measure2)) +
+        geom_point(aes(colour = factor(Participant), group = factor(Participant))) +
+        geom_line(aes(y = x$model$fitted.values, group = factor(Participant), color = factor(Participant)), linetype = 1) +
+        theme_bw() +
+        labs(x = paste(xlab, "log-transformed"), y = ylab)
+    xmax <- max(df$Measure1)
+    ymax <- max(df$Measure2)
+    p <- p +
+        annotate(
+            "text", x = xmax*0.8, y = c(ymax, ymax*0.99), 
+            label = paste0(c("r = ", "pval = "), signif(c(x$r, x$p), 3))
+        )
+    return(p)
+}
+plots <- lapply(rownames(genus.cpm)[which(pvals<0.05)], function(x){
+    rmcor.plot(rmcor.res[[x]], xlab = x, ylab = "Normalized LCAT")
+}) %>%
+    `names<-`(rownames(genus.cpm)[which(pvals<0.05)])
+plots
+```
+
+> In the analysis, correlations were examined between LCAT (Lecithin-Cholesterol Acyltransferase) activity and 14 different microbes. The initial results showed that all 14 microbes had significant correlations with LCAT, as indicated by unadjusted p-values. However, after applying correction none were statistically significant.
+
+***
+
+### Table of Repeated Measure Correlation (Normalized LCAT activity and Microbes)
+
+```{r}
+rmcor.cpm <- data.frame(
+    microbes = rownames(genus.cpm),
+    rmcor = sapply(rmcor.res, function(x)x$r),
+    pval = pvals,
+    padj = padjs,
+    sig = insight::format_p(padjs, name = NULL, stars_only = TRUE)
+)
+datatable(rmcor.cpm, colnames = c("Genus","Correlation (r)","p-value","Adjusted p-value","Sig level")) %>%
+        formatRound(columns = "rmcor", digits = 2) %>%
+        formatRound(columns = c("pval","padj"), digits = 3)
+```
+
+***
+
+
+## Metabolome correlation with LBP
+
+### Data Cleanup
+```{r message = F, warning = F}
+metabolites <- read_excel(here("metabolomic","raw","UCDA-03-20MD DATA TABLES.xlsx"),
+           sheet = "Batch-norm Imputed Data")
+
+sample_meta <- read_excel(here("metabolomic","raw","UCDA-03-20MD DATA TABLES.xlsx"),
+           sheet = "Sample Meta Data")
+
+sample_meta_subset <- sample_meta |>
+    dplyr::select(PARENT_SAMPLE_NAME, CLIENT_SAMPLE_ID)
+chemical_annotation <- read_excel(here("metabolomic","raw","UCDA-03-20MD DATA TABLES.xlsx"),
+           sheet = "Chemical Annotation")
+
+chemical_annotation_subset <- chemical_annotation |>
+    dplyr::select(CHEM_ID, PLOT_NAME, SUPER_PATHWAY,SUB_PATHWAY) |>
+    mutate(CHEM_ID = as.character(CHEM_ID))
+
+plate_mean_lbp <- plate_combined |>
+    group_by(subject, treatment, timepoint, `timepoint coded`) |>
+    summarise(mean_conc_ng_ml = mean(conc_ng_ml)) |>
+    mutate(subject = as.character(subject))
+
+metabolites_full <- metabolites |>
+    left_join(sample_meta_subset) |>
+    relocate(CLIENT_SAMPLE_ID) |>
+  separate(CLIENT_SAMPLE_ID, into = c("subject", "timepoint coded"), sep = "(?<=\\d)(?=\\D)", remove = TRUE) |>
+    left_join(plate_mean_lbp) |>
+    relocate(treatment, timepoint, mean_conc_ng_ml) 
+```
+
+
+### LBP and Metabolite repeated measure corr
+```{r message = F, warning = F}
+LBP <- log(metabolites_full$mean_conc_ng_ml)
+# Extract the columns of interest
+data_subset <- metabolites_full[, 7:896]
+# Assuming 'subject' is the name of your grouping variable
+group_id <- as.factor(metabolites_full$subject)
+
+# Add the grouping variable and the repeated measures variable to the data subset
+data_subset <- cbind(group_id = group_id, LBP = LBP, data_subset)
+
+
+
+# List to store the results
+results_list <- list()
+
+# Loop to perform rmcorr for each variable
+for(i in 3:(ncol(data_subset))) {
+    results <- rmcorr(dataset = data_subset, 
+                      participant = "group_id", 
+                      measure1 = "LBP", 
+                      measure2 = names(data_subset)[i])
+    results_list[[names(data_subset)[i]]] <- results
+}
+
+
+# Convert list to data frame
+results_df <- results_list %>%
+  purrr::map_dfr(function(x) {
+    tibble(
+      Rmcorr = x$r,
+      CI_lower = x$CI[1],
+      CI_upper = x$CI[2],
+      p_value = x$p,
+    padj = p.adjust(p_value, method = "BH"),
+    sig = insight::format_p(padj, name = NULL, stars_only = TRUE))
+  }, .id = "CHEM_ID")
+
+results_df <- results_df |>
+    mutate(padj = p.adjust(p_value, method = "BH"),
+           sig = insight::format_p(padj, name = NULL, stars_only = TRUE)) |>
+    left_join(chemical_annotation_subset) |>
+    relocate(PLOT_NAME, SUPER_PATHWAY, SUB_PATHWAY) |>
+    dplyr::select(!CHEM_ID) |>
+    mutate(SUPER_PATHWAY = as.factor(SUPER_PATHWAY))
+# Display as data table
+datatable(results_df, colnames = c("Compound","Super Pathway","Subpathway","Rmcorr","CI_lower","CI_upper","p_value","padj","sig")) |>
+    formatRound(columns = c("Rmcorr","CI_lower","CI_upper","p_value","padj"), digits = 3)
+#sum(results_df$p_value < 0.05)
+
+#write.csv(results_df,here("output","LBP_metabolite_corr.csv"))
+
+```
+
+> There are 50 metabolites out of 890 metabolites were significantly correlated with LBP, but none were signficant after multiple testing. 
+
+
+## LBP corr with metabolite barplot
+```{r}
+
+# Select the top 30 absolute Rmcorr 
+top_results_df <- results_df %>%
+    mutate(abs_Rmcorr = abs(Rmcorr)) %>%
+    top_n(30, abs_Rmcorr)
+
+# Get a palette of 9 colors
+color_palette <- brewer.pal(9, "Set1")
+
+# Create a named vector mapping SUPER_PATHWAY levels to colors
+color_mapping <- setNames(color_palette, c("Amino Acid", "Carbohydrate", "Cofactors and Vitamins", 
+                                           "Energy", "Lipid", "Nucleotide", 
+                                           "Partially Characterized Molecules", "Peptide", "Xenobiotics"))
+
+
+# Create the bar plot
+top30_lbp_metabolite_plot <- ggplot(top_results_df, aes(x = reorder(PLOT_NAME, abs_Rmcorr), y = Rmcorr, fill = SUPER_PATHWAY)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +
+    labs(x = "Top 30 Compounds", y = "Repeated Measure (rmcorr)", fill = "Super Pathway", title = "LBP") +
+    scale_fill_manual(values = color_mapping) +
+    theme_minimal() + 
+    theme(legend.position = "bottom",
+          plot.title = element_text(hjust = 0.5, color = "black"),
+          text = element_text(size = 12, color = "black"),
+          axis.text = element_text(color = "black"),
+          axis.title = element_text(color = "black"),
+          legend.text = element_text(color = "black"),
+          legend.title = element_text(color = "black")) +
+    guides(fill = guide_legend(nrow = 2))
+    
+
+print(top30_lbp_metabolite_plot)
+ggsave(top30_lbp_metabolite_plot, filename = here("figures","LBP_metabolite_corr.jpg"),
+       dpi= 300,
+       height = 8,
+       width = 10)
+```
+
+> The top 30 absolute correlation (rrmcorr) is displayed in this bar plot.
+
+***
+
+
+## Metabolome correlation with LCAT Activity
+```{r message = F, warning = F}
+metabolites_full_lcat <- lcat_summary |>
+    mutate(subject = as.character(subject)) |>
+    dplyr::select(!c(sd,cv)) |>
+    left_join(metabolites_full)
+```
+
+### LCAT Activity and Metabolite repeated measure corr
+```{r message = F, warning = F}
+LCAT <- metabolites_full_lcat$mean_norm.LCAT.ratio
+# Extract the columns of interest
+data_subset <- metabolites_full_lcat[, 8:897]
+# Assuming 'subject' is the name of your grouping variable
+group_id <- as.factor(metabolites_full_lcat$subject)
+
+# Add the grouping variable and the repeated measures variable to the data subset
+data_subset <- cbind(group_id = group_id, LCAT = LCAT, data_subset)
+
+
+
+# List to store the results
+results_list <- list()
+
+# Loop to perform rmcorr for each variable
+for(i in 3:(ncol(data_subset))) {
+    results <- rmcorr(dataset = data_subset, 
+                      participant = "group_id", 
+                      measure1 = "LCAT", 
+                      measure2 = names(data_subset)[i])
+    results_list[[names(data_subset)[i]]] <- results
+}
+
+
+# Convert list to data frame
+results_df <- results_list %>%
+  purrr::map_dfr(function(x) {
+    tibble(
+      Rmcorr = x$r,
+      CI_lower = x$CI[1],
+      CI_upper = x$CI[2],
+      p_value = x$p,
+    padj = p.adjust(p_value, method = "BH"),
+    sig = insight::format_p(padj, name = NULL, stars_only = TRUE))
+  }, .id = "CHEM_ID")
+
+results_df <- results_df |>
+    mutate(padj = p.adjust(p_value, method = "BH"),
+           sig = insight::format_p(padj, name = NULL, stars_only = TRUE)) |>
+    left_join(chemical_annotation_subset) |>
+    relocate(PLOT_NAME, SUPER_PATHWAY, SUB_PATHWAY) |>
+    dplyr::select(!CHEM_ID) |>
+    mutate(SUPER_PATHWAY = as.factor(SUPER_PATHWAY))
+# Display as data table
+datatable(results_df, colnames = c("Compound","Super Pathway","Subpathway","Rmcorr","CI_lower","CI_upper","p_value","padj","sig")) |>
+    formatRound(columns = c("Rmcorr","CI_lower","CI_upper","p_value","padj"), digits = 3)
+
+#sum(results_df$p_value < 0.05)
+
+#write.csv(results_df,here("output","LCAT_metabolite_corr.csv"))
+
+```
+
+> 47/890 metabolites were significantly correlated with LCAT activity, however none reach statistical significance after multiple testing.
+
+
+## LCAT corr with metabolite barplot
+```{r}
+# Select the top 30 absolute Rmcorr 
+top_results_df <- results_df %>%
+    mutate(abs_Rmcorr = abs(Rmcorr)) %>%
+    top_n(30, abs_Rmcorr)
+
+# Get a palette of 9 colors
+color_palette <- brewer.pal(9, "Set1")
+
+# Create a named vector mapping SUPER_PATHWAY levels to colors
+color_mapping <- setNames(color_palette, c("Amino Acid", "Carbohydrate", "Cofactors and Vitamins", 
+                                           "Energy", "Lipid", "Nucleotide", 
+                                           "Partially Characterized Molecules", "Peptide", "Xenobiotics"))
+
+
+# Create the bar plot
+top30_lcat_metabolite_plot <- ggplot(top_results_df, aes(x = reorder(PLOT_NAME, abs_Rmcorr), y = Rmcorr, fill = SUPER_PATHWAY)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +
+    labs(x = "Top 30 Compounds", y = "Repeated Measure (rmcorr)", fill = "Super Pathway", title = "LCAT Activity") +
+    scale_fill_manual(values = color_mapping) +
+    theme_minimal() + 
+    theme(legend.position = "bottom",
+          plot.title = element_text(hjust = 0.5, color = "black"),
+          text = element_text(size = 12, color = "black"),
+          axis.text = element_text(color = "black"),
+          axis.title = element_text(color = "black"),
+          legend.text = element_text(color = "black"),
+          legend.title = element_text(color = "black")) +
+    guides(fill = guide_legend(nrow = 2))
+
+print(top30_lcat_metabolite_plot)
+ggsave(top30_lcat_metabolite_plot, filename = here("figures","LCAT_metabolite_corr.jpg"),
+       dpi= 300,
+       height = 8,
+       width = 10)
+```
+
+> The top 30 absolute correlation (rrmcorr) is displayed in this bar plot.
+
+
+## Combined Metabolite Correlation with LBP and LCAT
+```{r, fig.width=20, fig.height=8}
+
+
+
+# Remove color legends from both plots
+LBP_plot <- top30_lbp_metabolite_plot + theme(legend.position = "none")
+LCAT_plot <- top30_lcat_metabolite_plot + theme(legend.position = "none")
+
+# Combine the plots vertically
+combined_plots <- plot_grid(top30_lbp_metabolite_plot, top30_lcat_metabolite_plot, labels = c("A", "B"), ncol = 2)
+
+print(combined_plots)
+ggsave(plot = combined_plots, filename = here("figures","LBP_LCAT_metabolite_plot.jpg"),
+       dpi = 300,
+       height = 6,
+       width = 10,
+       scale = 2.5)
+```
+
+***
+
+## Summary 
+
+In the analysis, several findings were observed:
+
+1) There was no statistically significant difference in LBP (lipopolysaccharide binding protein) levels between the Placebo and control groups at the Pre and Post timepoints.
+
+2) Initially, LBP showed a positive correlation with HDL (high-density lipoprotein) levels, but this correlation did not remain significant after correcting for multiple testing.
+
+3) There was no statistically significant correlation found between LBP and LCAT (lecithin-cholesterol acyltransferase).
+
+4) LBP was found to be significantly correlated with 5 specific microbes, but these correlations did not hold significance after adjusting for multiple testing.
+
+5) LCAT showed significant positive correlations with HDL, LDL (low-density lipoprotein), and cholesterol levels even after adjustment.
+
+6) LCAT was significantly correlated with 14 specific microbes, but these correlations did not remain significant after adjustment.
+
+7) LBP was significantly correlated with 50 metabolites in the unadjusted pvalue, but not adjusted pvalue
+
+8) LCAT Activity was significantly correlated with 47 metabolites in the unadjusted pvalue, but not adjusted pvalue.
+
+9) Individuals with above-median pre-LBP levels showed a significant decrease in post-LBP levels after fiber treatment (P < 0.020).
