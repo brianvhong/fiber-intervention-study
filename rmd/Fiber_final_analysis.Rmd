@@ -1153,7 +1153,7 @@ ggsave(top30_lcat_metabolite_plot, filename = here("figures","LCAT_metabolite_co
 # Combine the plots vertically
 #combined_plots <- plot_grid(top30_lbp_metabolite_plot, top30_lcat_metabolite_plot, labels = c("A", "B"), ncol = 2)
 
-combined_plots <- ggarrange(top30_lbp_metabolite_plot, top30_lcat_metabolite_plot, ncol=2, nrow=1, common.legend = TRUE, legend="bottom", labels = "AUTO")
+combined_plots <- ggarrange(top30_lbp_metabolite_plot, top30_lcat_metabolite_plot, ncol=2, nrow=1, common.legend = TRUE, legend="bottom", labels = "AUTO", font.label = list(size = 30))
 
 
 
