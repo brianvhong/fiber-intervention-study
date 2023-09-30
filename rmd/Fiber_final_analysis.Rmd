@@ -60,7 +60,10 @@ pacman::p_load(here,
                HTSet,
                cowplot,
                RColorBrewer,
-               ggsignif)
+               ggsignif,
+               viridis,
+               ggsci,
+               scales)
 ```
 
 
@@ -450,7 +453,11 @@ plate_fiber_first <- plate_combined %>%
 
 
 # Create a separate boxplot plot
-boxplot_plot <- ggplot(plate_fiber_first, aes(x = timepoint, y = conc_ng_ml, fill = timepoint)) +
+boxplot_plot <- plate_fiber_first |>
+    group_by(subject, treatment, timepoint) |>
+    summarize(mean_conc_ng_ml = mean(conc_ng_ml),
+              sd = sd(conc_ng_ml)) |>
+ggplot(aes(x = timepoint, y = mean_conc_ng_ml, fill = timepoint)) +
   geom_boxplot() +
   geom_point(aes(color = subject)) +
     geom_line(aes(group = subject, color = subject)) +
@@ -494,7 +501,7 @@ lcat_treatment_summary <- lcat |>
     summarise(mean_norm.LCAT.ratio = mean(norm.LCAT.ratio),
               sd = sd(norm.LCAT.ratio))
 
-datatable(lcat_treatment_summary, colnames = c("Treatment","Timepoint","Normalized LCAT Activity","SD")) |>
+datatable(lcat_treatment_summary, colnames = c("Treatment","Timepoint","LCAT Activity Index","SD")) |>
     formatRound(columns = c("mean_norm.LCAT.ratio","sd"), digits = 3)
 
 # boxplot, all data points
@@ -504,7 +511,7 @@ LCAT_plot <- ggplot(lcat_summary, aes(timepoint, mean_norm.LCAT.ratio))+
     geom_line(aes(color = subject, group = subject)) +
     facet_grid(~treatment) +
     theme_bw() +
-        labs(y = "Normalized LCAT Activity ", x = "Timepoint", title = paste0("P = ",p_value_lcat))
+        labs(y = "LCAT Activity Index", x = "Timepoint", title = paste0("P = ",p_value_lcat))
 
 LCAT_plot
 
@@ -809,7 +816,7 @@ padjs <- p.adjust(pvals, method = "BH")
 
 > Microbes counts per million (cpm) were log transformed.
 
-### Significantly correlation between Normalized LCAT activity ~ log(microbes)
+### Significantly correlation between LCAT activity Index ~ log(microbes)
 ```{r}
 rmcor.plot <- function(x, xlab, ylab){
     df <- x$model$model
@@ -828,7 +835,7 @@ rmcor.plot <- function(x, xlab, ylab){
     return(p)
 }
 plots <- lapply(rownames(genus.cpm)[which(pvals<0.05)], function(x){
-    rmcor.plot(rmcor.res[[x]], xlab = x, ylab = "Normalized LCAT")
+    rmcor.plot(rmcor.res[[x]], xlab = x, ylab = "LCAT Activity Index")
 }) %>%
     `names<-`(rownames(genus.cpm)[which(pvals<0.05)])
 plots
@@ -955,12 +962,30 @@ top_results_df <- results_df %>%
     top_n(30, abs_Rmcorr)
 
 # Get a palette of 9 colors
-color_palette <- brewer.pal(9, "Set1")
+#color_palette <- brewer.pal(9, "Set1")
+n_colors <- 9
+color_palette <- pal_npg("nrc")(n_colors)
 
-# Create a named vector mapping SUPER_PATHWAY levels to colors
-color_mapping <- setNames(color_palette, c("Amino Acid", "Carbohydrate", "Cofactors and Vitamins", 
-                                           "Energy", "Lipid", "Nucleotide", 
-                                           "Partially Characterized Molecules", "Peptide", "Xenobiotics"))
+
+# Create a named vector mapping SUPER_PATHWAY levels to colors ("Energy" and "Peptide" is removed for combined bar plot, copy below  palette when outputting single figure)
+
+#color_mapping <- setNames(color_palette, c("Amino Acid",
+#                                           "Carbohydrate", 
+ #                                          "Cofactors and Vitamins", #
+ #                                          "Energy", 
+  #                                         "Lipid", 
+   #                                        "Nucleotide", 
+    #                                       "Partially Characterized Molecules", 
+#                                           "Peptide", 
+ #                                          "Xenobiotics"))
+
+color_mapping <- setNames(color_palette, c("Amino Acid",
+                                           "Carbohydrate", 
+                                           "Cofactors and Vitamins", 
+                                            "Lipid", 
+                                           "Nucleotide", 
+                                           "Partially Characterized Molecules", 
+                                           "Xenobiotics"))
 
 
 # Create the bar plot
@@ -968,11 +993,12 @@ top30_lbp_metabolite_plot <- ggplot(top_results_df, aes(x = reorder(PLOT_NAME, a
     geom_bar(stat = "identity") +
     coord_flip() +
     labs(x = "Top 30 Compounds", y = "Repeated Measure (rmcorr)", fill = "Super Pathway", title = "LBP") +
-    scale_fill_manual(values = color_mapping) +
+    scale_fill_manual(values = color_mapping,
+                     drop = FALSE) + # drop = FALSE keeps color level even if not present. Remove this when saving single figure.
     theme_minimal() + 
     theme(legend.position = "bottom",
           plot.title = element_text(hjust = 0.5, color = "black"),
-          text = element_text(size = 12, color = "black"),
+          text = element_text(size = 20, color = "black"),
           axis.text = element_text(color = "black"),
           axis.title = element_text(color = "black"),
           legend.text = element_text(color = "black"),
@@ -981,10 +1007,11 @@ top30_lbp_metabolite_plot <- ggplot(top_results_df, aes(x = reorder(PLOT_NAME, a
     
 
 print(top30_lbp_metabolite_plot)
-ggsave(top30_lbp_metabolite_plot, filename = here("figures","LBP_metabolite_corr.jpg"),
-       dpi= 300,
-       height = 8,
-       width = 10)
+#ggsave(top30_lbp_metabolite_plot, filename = here("figures","LBP_metabolite_corr.jpg"),
+ #      dpi= 300,
+  #     height = 8,
+   #    width = 10,
+    #   scale = 1.8)
 ```
 
 > The top 30 absolute correlation (rrmcorr) is displayed in this bar plot.
@@ -1066,24 +1093,42 @@ top_results_df <- results_df %>%
     top_n(30, abs_Rmcorr)
 
 # Get a palette of 9 colors
-color_palette <- brewer.pal(9, "Set1")
+
+n_colors <- 9
+color_palette <- pal_npg("nrc")(n_colors)
+
+#color_palette <- brewer.pal(9, "Set1")
 
 # Create a named vector mapping SUPER_PATHWAY levels to colors
-color_mapping <- setNames(color_palette, c("Amino Acid", "Carbohydrate", "Cofactors and Vitamins", 
-                                           "Energy", "Lipid", "Nucleotide", 
-                                           "Partially Characterized Molecules", "Peptide", "Xenobiotics"))
+#color_mapping <- setNames(color_palette, c("Amino Acid",
+#                                           "Carbohydrate", 
+ #                                          "Cofactors and Vitamins", #
+ #                                          "Energy", 
+  #                                         "Lipid", 
+   #                                        "Nucleotide", 
+    #                                       "Partially Characterized Molecules", 
+#                                           "Peptide", 
+ #                                          "Xenobiotics"))
 
+
+color_mapping <- setNames(color_palette, c("Amino Acid",
+                                           "Carbohydrate", 
+                                           "Cofactors and Vitamins", 
+                                            "Lipid", 
+                                           "Nucleotide", 
+                                           "Partially Characterized Molecules", 
+                                           "Xenobiotics"))
 
 # Create the bar plot
 top30_lcat_metabolite_plot <- ggplot(top_results_df, aes(x = reorder(PLOT_NAME, abs_Rmcorr), y = Rmcorr, fill = SUPER_PATHWAY)) +
     geom_bar(stat = "identity") +
     coord_flip() +
-    labs(x = "Top 30 Compounds", y = "Repeated Measure (rmcorr)", fill = "Super Pathway", title = "LCAT Activity") +
+    labs(x = "Top 30 Compounds", y = "Repeated Measure (rmcorr)", fill = "Super Pathway", title = "LCAT Activity Index") +
     scale_fill_manual(values = color_mapping) +
     theme_minimal() + 
     theme(legend.position = "bottom",
           plot.title = element_text(hjust = 0.5, color = "black"),
-          text = element_text(size = 12, color = "black"),
+          text = element_text(size = 20, color = "black"),
           axis.text = element_text(color = "black"),
           axis.title = element_text(color = "black"),
           legend.text = element_text(color = "black"),
@@ -1094,7 +1139,8 @@ print(top30_lcat_metabolite_plot)
 ggsave(top30_lcat_metabolite_plot, filename = here("figures","LCAT_metabolite_corr.jpg"),
        dpi= 300,
        height = 8,
-       width = 10)
+       width = 10,
+       scale = 1.8)
 ```
 
 > The top 30 absolute correlation (rrmcorr) is displayed in this bar plot.
@@ -1104,15 +1150,14 @@ ggsave(top30_lcat_metabolite_plot, filename = here("figures","LCAT_metabolite_co
 ```{r, fig.width=20, fig.height=8}
 
 
-
-# Remove color legends from both plots
-LBP_plot <- top30_lbp_metabolite_plot + theme(legend.position = "none")
-LCAT_plot <- top30_lcat_metabolite_plot + theme(legend.position = "none")
-
 # Combine the plots vertically
-combined_plots <- plot_grid(top30_lbp_metabolite_plot, top30_lcat_metabolite_plot, labels = c("A", "B"), ncol = 2)
+#combined_plots <- plot_grid(top30_lbp_metabolite_plot, top30_lcat_metabolite_plot, labels = c("A", "B"), ncol = 2)
 
-print(combined_plots)
+combined_plots <- ggarrange(top30_lbp_metabolite_plot, top30_lcat_metabolite_plot, ncol=2, nrow=1, common.legend = TRUE, legend="bottom", labels = "AUTO")
+
+
+
+
 ggsave(plot = combined_plots, filename = here("figures","LBP_LCAT_metabolite_plot.jpg"),
        dpi = 300,
        height = 6,

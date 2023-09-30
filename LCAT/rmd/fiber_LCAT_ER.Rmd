@@ -44,6 +44,7 @@ clinic <- read_xlsx(here("subject_characteristics","USANA Study Clinical Meta Da
         Sample.ID = paste0(subject, `timepoint coded`),
         treatment = ifelse(treatment=="A", "fiber", "placebo")
     ) 
+
 metadata <- left_join(mapping, clinic)
 ```
 
@@ -191,7 +192,7 @@ plate.merge %>%
     geom_line(aes(color = subject, group = subject)) +
     facet_grid(Batch~treatment) +
     theme_bw() +
-        labs(y = "Normalized \n LCAT Activity", x = "Time Point")
+        labs(y = "LCAT Activity Index", x = "Time Point")
 ```
 
 ## HDL-C correlation with LCAT (Pearson Correlation)
@@ -219,7 +220,7 @@ ggscatter(plate.merge, x = "norm.LCAT.ratio", y = "log_HDL", color = "subject",
    add.params = list(color = "blue", fill = "lightgray"), # Customize reg. line
    conf.int = TRUE # Add confidence interval
    ) + stat_cor(method = "pearson", label.x = 1.05, label.y = 5) +
-        labs(y = "log(HDL)", x = "Normalized LCAT Activity")
+        labs(y = "log(HDL)", x = "LCAT Activity Index")
 
 ```
 
