@@ -320,7 +320,7 @@ p <- ggplot(plate_long_fiber, aes(timepoint, conc_ng_ml))+
     geom_line(aes(color = subject, group = subject)) +
     facet_grid(~group) +
     theme_bw() +
-        labs(y = "LBP (ng/mL)", x = "Timepoint", title = paste0("P = ",p_value))
+        labs(y = "LBP (ng/mL)", x = "Timepoint")
 
 
 # Add significance indicators separately for each response type and group
@@ -369,7 +369,7 @@ plate_long_fiber_summary_output <- plate_long_fiber_summary |>
 #write_excel(plate_long_fiber_summary_output, here("output","LBP_median_summary.xlsx"))
 
 
-ggsave(LBP_responder, filename = here("figures","separate_LBP_median.tiff"),
+ggsave(LBP_responder, filename = here("figures","separate_LBP_median.jpg"),
        dpi = 300,
        width = 8,
        height = 6,
@@ -534,13 +534,155 @@ combined_plots <- plot_grid(LBP_plot, LCAT_plot, labels = c("A", "B"), ncol = 2)
 final_plot <- plot_grid(combined_plots, common_legend, ncol = 1, rel_heights = c(1, 0.25))
 
 print(final_plot)
-ggsave(plot = final_plot, filename = here("figures","LBP_LCAT_plot.tiff"),
+ggsave(plot = final_plot, filename = here("figures","LBP_LCAT_plot.jpg"),
        dpi = 300,
        height = 6,
        width = 8,
        bg = 'white')
 ```
 
+
+## LCAT Activity Separated by Median Pre LCAT Activity
+```{r}
+# Calculate mean norm.LCAT.ratio for each subject, timepoint, and treatment
+plate_responder <- lcat_rename %>%
+  group_by(subject, treatment, timepoint) %>%
+  summarise(mean_norm.LCAT.ratio = mean(norm.LCAT.ratio), .groups = "drop") %>%
+  pivot_wider(names_from = timepoint, values_from = mean_norm.LCAT.ratio)
+
+# Calculate change in LCAT for each subject and classify as responder or non-responder
+plate_responder <- plate_responder %>%
+  mutate(change_in_LCAT = post - pre,
+         response = ifelse(change_in_LCAT < median(change_in_LCAT, na.rm = TRUE), "responder", "non-responder"))
+
+# Subset to fiber treatment group
+plate_responder_fiber <- plate_responder %>%
+  filter(treatment == "Prebiotic")
+
+# Calculate median LCAT Activity for grouping
+median_LBP <- median(plate_responder_fiber$pre, na.rm = TRUE)
+
+# Classify as above or below median LCAT Activity 
+plate_responder_fiber <- plate_responder_fiber %>%
+  mutate(group = ifelse(pre < median_LBP, "below median", "above median"))
+
+# Convert to long format for plotting
+plate_long_fiber <- plate_responder_fiber %>%
+  pivot_longer(cols = c(pre, post), names_to = "timepoint", values_to = "norm.LCAT.ratio") %>%
+  mutate(subject = as.factor(subject),
+         timepoint = as.factor(timepoint),
+         response = as.factor(response),
+         group = as.factor(group),
+         timepoint = factor(timepoint, levels = c("pre", "post")))
+
+
+
+
+
+# Create the plot
+p <- ggplot(plate_long_fiber, aes(x = timepoint, y = norm.LCAT.ratio, fill = group)) +
+  geom_boxplot() +
+  geom_point(aes(color = subject)) +
+  geom_line(aes(group = subject, color = subject)) +
+  facet_grid(.~ group) +
+  labs(x = "Timepoint", y = "LCAT Activity Index", fill = "Group", color = "Subject") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+p <- ggplot(plate_long_fiber, aes(timepoint, norm.LCAT.ratio))+
+    geom_boxplot()+
+    geom_point(aes(color = subject))+
+    geom_line(aes(color = subject, group = subject)) +
+    facet_grid(~group) +
+    theme_bw() +
+        labs(y = "LCAT Activity Index", x = "Timepoint")
+
+
+# Add significance indicators separately for each response type and group
+LCAT_responder <- p +
+  geom_signif(data = subset(plate_long_fiber, group == "above median"), 
+              aes(x = timepoint, y = norm.LCAT.ratio), 
+              comparisons = list(c("pre", "post")), 
+              test = "t.test", 
+              test.args = list(paired = TRUE),
+              map_signif_level = TRUE) +
+  geom_signif(data = subset(plate_long_fiber, group == "below median"), 
+              aes(x = timepoint, y = norm.LCAT.ratio), 
+              comparisons = list(c("pre", "post")), 
+              test = "t.test", 
+              test.args = list(paired = TRUE),
+              map_signif_level = TRUE)
+
+LCAT_responder
+
+# Calculate p-values for each group
+p_values_above_median <- with(subset(plate_long_fiber, group == "above median"), 
+                              t.test(norm.LCAT.ratio ~ timepoint, 
+                                     paired = TRUE,
+                                     na.rm = TRUE)$p.value)
+
+p_values_below_median <- with(subset(plate_long_fiber, group == "below median"),
+                              t.test(norm.LCAT.ratio ~ timepoint,
+                                     paired = TRUE, 
+                                     na.rm = TRUE)$p.value)
+
+# Create a table with the p-values
+p_value_table <- data.frame(
+  group = c("above median", "below median"),
+  P_Value = c(p_values_above_median, p_values_below_median)
+)
+plate_long_fiber_summary <- plate_long_fiber |>
+    group_by(group, timepoint) |>
+    summarize(mean_norm.LCAT.ratio = mean(norm.LCAT.ratio, na.rm = TRUE),
+              sd = sd(norm.LCAT.ratio, na.rm = TRUE))
+
+
+# Print the table
+datatable(plate_long_fiber_summary)
+datatable(p_value_table)
+
+plate_long_fiber_summary_output <- plate_long_fiber_summary |>
+    mutate("LCAT Activity Index +/- SD" = paste0(round(mean_norm.LCAT.ratio,3), " ± ",round(sd,2))) |>
+    dplyr::select(-mean_norm.LCAT.ratio,-sd) |>
+    pivot_wider(names_from = "timepoint", values_from = "LCAT Activity Index +/- SD") |>
+    left_join(p_value_table)
+
+
+#write_excel(plate_long_fiber_summary_output, here("output","LCAT_median_summary.xlsx"))
+
+
+ggsave(LCAT_responder, filename = here("figures","separate_LCAT_median.jpg"),
+       dpi = 300,
+       width = 8,
+       height = 6,
+       bg = 'white')
+
+
+```
+
+
+## Combined LCAT and LBP Median
+```{r}
+# Extract the color legend
+common_legend <- get_legend(LCAT_responder + theme(legend.position="bottom"))
+
+# Remove color legends from both plots
+LBP_responder <- LBP_responder + theme(legend.position = "none")
+LCAT_responder <- LCAT_responder + theme(legend.position = "none")
+
+# Combine the plots vertically
+combined_plots <- plot_grid(LBP_responder, LCAT_responder, labels = c("A", "B"), ncol = 2)
+
+# Combine the plots with the common legend
+final_plot <- plot_grid(combined_plots, common_legend, ncol = 1, rel_heights = c(1, 0.25))
+
+print(final_plot)
+ggsave(plot = final_plot, filename = here("figures","LBP_LCAT_by_MEDIAN_plot.jpg"),
+       dpi = 300,
+       height = 6,
+       width = 8,
+       bg = 'white')
+```
 
 ## Log LBP Correlation with LCAT activity
 ```{r message = F}
