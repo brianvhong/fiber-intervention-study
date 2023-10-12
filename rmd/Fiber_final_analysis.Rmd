@@ -59,11 +59,13 @@ pacman::p_load(here,
                rmcorr,
                HTSet,
                cowplot,
+               patchwork,
                RColorBrewer,
                ggsignif,
                viridis,
                ggsci,
-               scales)
+               scales,
+               openxlsx)
 ```
 
 
@@ -186,8 +188,8 @@ plate_combined <- plate_1_filter |>
     bind_rows(plate_2_filter) |>
     mutate(conc_ng_ml = conc_pg_ml/1000) |>
     left_join(subject_characteristic) |>
-    mutate(treatment = ifelse(treatment=="A", "fiber", "placebo"),
-           treatment = factor(treatment, levels = c("placebo","fiber")),
+    mutate(treatment = ifelse(treatment=="A", "Prebiotic", "Placebo"),
+           treatment = factor(treatment, levels = c("Placebo","Prebiotic")),
            timepoint = factor(timepoint, levels = c("pre", "post")))
 
 plate_summary <- plate_combined |>
@@ -227,13 +229,20 @@ p_value <- round(summary_con$p.value,3)
 ```{r}
 treatment_summary <- plate_combined |>
     group_by(treatment, timepoint) |>
-    summarise(mean_conc_ng_ml = mean(conc_ng_ml),
-              sd = sd(conc_ng_ml))
+    summarise(mean_conc_ng_ml = round(mean(conc_ng_ml),2),
+              sd = round(sd(conc_ng_ml),2))
 
 datatable(treatment_summary, colnames = c("Treatment","Timepoint","LBP (ng/mL)","SD")) |>
     formatRound(columns = c("mean_conc_ng_ml","sd"), digits = 2)
 
 #write_csv(treatment_summary, here("output","LBP_treatment_summary.csv"))
+
+## Pivot Wider
+treatment_summary_wide <- treatment_summary |>
+    mutate("LBP (ng/mL) +/- SD" = paste0(round(mean_conc_ng_ml,2), " ± ",round(sd,2))) |>
+    dplyr::select(-mean_conc_ng_ml,-sd) |>
+    pivot_wider(names_from = "timepoint", values_from = "LBP (ng/mL) +/- SD")
+
 ```
 
 ## LBP Figure
@@ -249,73 +258,14 @@ LBP_plot <- ggplot(plate_summary, aes(timepoint, mean_conc_ng_ml))+
 
 LBP_plot
 
-#ggsave(plot = LBP_plot, filename  = here("figures","LPB_plot.jpg"),
-       #dpi = 300,
-       #width = 8,
-       #height = 6)
+ggsave(plot = LBP_plot, filename  = here("figures","LPB_plot.jpg"),
+       dpi = 300,
+       width = 8,
+       height = 6)
 ```
 
 > No statistically significant difference in LBP between pre vs post among treatments. P-value is provided on the log scale (p = 0.446)
 
-## LBP Responder vs non Responder
-```{r width = 8, height = 6}
-# Calculate mean conc_ng_ml for each subject, timepoint, and treatment
-plate_responder <- plate_combined %>%
-  group_by(subject, treatment, timepoint) %>%
-  summarise(mean_conc_ng_ml = mean(conc_ng_ml), .groups = "drop") %>%
-  pivot_wider(names_from = timepoint, values_from = mean_conc_ng_ml)
-
-# Calculate change in LBP for each subject and classify as responder or non-responder
-plate_responder <- plate_responder %>%
-  mutate(change_in_LBP = post - pre,
-         response = ifelse(change_in_LBP < median(change_in_LBP, na.rm = TRUE), "responder", "non-responder"))
-
-# Subset to fiber treatment group
-plate_responder_fiber <- plate_responder %>%
-  filter(treatment == "fiber")
-
-# convert to long format for plotting
-plate_long_fiber <- plate_responder_fiber %>%
-  pivot_longer(cols = c(pre, post), names_to = "timepoint", values_to = "conc_ng_ml") |>
-    mutate(subject = as.factor(subject),
-           timepoint = as.factor(timepoint),
-           response = as.factor(response),
-           timepoint = factor(timepoint, levels = c("pre", "post")))
-
-# Now, we should have a single boxplot for each combination of response and timepoint
-p <- ggplot(plate_long_fiber, aes(x = timepoint, y = conc_ng_ml, fill = response)) +
-  geom_boxplot() +
-  geom_point(aes(color = subject)) +
-  geom_line(aes(group = subject, color = subject)) +
-  facet_grid(. ~ response) +
-  labs(x = "Timepoint", y = "LBP Concentration (ng/mL)", fill = "Response", color = "Subject") +
-  theme_minimal() +
-  theme(legend.position = "bottom")
-
-# Add significance indicators separately for each response type
-LBP_responder <- p + geom_signif(data = subset(plate_long_fiber, response == "responder"), 
-                aes(x = timepoint, y = conc_ng_ml), 
-                comparisons = list(c("pre", "post")), 
-                test = "t.test", 
-                test.args = list(paired = TRUE),
-                map_signif_level = TRUE) +
-  geom_signif(data = subset(plate_long_fiber, response == "non-responder"), 
-              aes(x = timepoint, y = conc_ng_ml), 
-              comparisons = list(c("pre", "post")), 
-              test = "t.test", 
-              test.args = list(paired = TRUE),
-              map_signif_level = TRUE)
-LBP_responder
-#ggsave(plot = LBP_responder, filename = here("figures","LBP_responders.jpg"),
-       #dpi = 300,
-      # width = 8,
-       #height = 6)
-
-
-                                 
-```
-
-> When separated by responders vs responders (those who have decrease LBP compared to the median change in pre vs post), we see significant differences in LBP concentration where post timepoint fiber supplementation results in decrease LBP. 
 
 ## LBP Separated by Median Pre LBP
 ```{r}
@@ -332,7 +282,7 @@ plate_responder <- plate_responder %>%
 
 # Subset to fiber treatment group
 plate_responder_fiber <- plate_responder %>%
-  filter(treatment == "fiber")
+  filter(treatment == "Prebiotic")
 
 # Calculate median LBP for grouping
 median_LBP <- median(plate_responder_fiber$pre, na.rm = TRUE)
@@ -360,9 +310,18 @@ p <- ggplot(plate_long_fiber, aes(x = timepoint, y = conc_ng_ml, fill = group)) 
   geom_point(aes(color = subject)) +
   geom_line(aes(group = subject, color = subject)) +
   facet_grid(.~ group) +
-  labs(x = "Timepoint", y = "LBP Concentration (ng/mL)", fill = "Group", color = "Subject") +
+  labs(x = "Timepoint", y = "LBP (ng/mL)", fill = "Group", color = "Subject") +
   theme_minimal() +
   theme(legend.position = "bottom")
+
+p <- ggplot(plate_long_fiber, aes(timepoint, conc_ng_ml))+
+    geom_boxplot()+
+    geom_point(aes(color = subject))+
+    geom_line(aes(color = subject, group = subject)) +
+    facet_grid(~group) +
+    theme_bw() +
+        labs(y = "LBP (ng/mL)", x = "Timepoint", title = paste0("P = ",p_value))
+
 
 # Add significance indicators separately for each response type and group
 LBP_responder <- p +
@@ -400,15 +359,27 @@ plate_long_fiber_summary <- plate_long_fiber |>
 datatable(plate_long_fiber_summary)
 datatable(p_value_table)
 
-ggsave(LBP_responder, filename = here("figures","separate_LBP_median.jpg"),
+plate_long_fiber_summary_output <- plate_long_fiber_summary |>
+    mutate("LBP (ng/mL) +/- SD" = paste0(round(mean_conc_ng_ml,2), " ± ",round(sd,2))) |>
+    dplyr::select(-mean_conc_ng_ml,-sd) |>
+    pivot_wider(names_from = "timepoint", values_from = "LBP (ng/mL) +/- SD") |>
+    left_join(p_value_table)
+
+
+#write_excel(plate_long_fiber_summary_output, here("output","LBP_median_summary.xlsx"))
+
+
+ggsave(LBP_responder, filename = here("figures","separate_LBP_median.tiff"),
        dpi = 300,
        width = 8,
-       height = 6)
+       height = 6,
+       bg = 'white')
 
 
 ```
 
 > Individuals with above-median pre-LBP levels showed a significant decrease in post-LBP levels after fiber treatment (P < 0.020).
+
 
 ***
 
@@ -447,7 +418,7 @@ datatable(result_table,
 ```{r}
 # Filter the data for fiber treatment and selected subjects
 plate_fiber_first <- plate_combined %>%
-  filter(treatment == "fiber" & subject %in% c("201", "203", "205", "209", "213", "216", "222", "223", "224")) |>
+  filter(treatment == "Prebiotic" & subject %in% c("201", "203", "205", "209", "213", "216", "222", "223", "224")) |>
     mutate(subject = as.factor(subject))
              
 
@@ -477,8 +448,10 @@ ggsave(boxplot_plot, filename = here("figures","fiber_first_lbp.jpg"),
 
 ## LCAT activity Table and Figure
 ```{r message = F}
+lcat_rename <- lcat |>
+    mutate(treatment = ifelse(treatment=="fiber", "Prebiotic", "Placebo"))
+mix_model_lcat <- lmer(norm.LCAT.ratio ~ treatment*timepoint + (1|subject), data = lcat_rename)
 
-mix_model_lcat <- lmer(norm.LCAT.ratio ~ treatment*timepoint + (1|subject), data = lcat)
 # Check the assumption: normality
 #shapiro.test(resid(mix_model_lcat))
 # post hoc
@@ -487,21 +460,22 @@ con <- contrast(emm, interaction = "pairwise", lmer.df = "K")
 summary_con <- summary(con)
 p_value_lcat <- round(summary_con$p.value,3)
 
-lcat_summary <- lcat |>
+lcat_summary <- lcat_rename |>
     group_by(subject, treatment, timepoint) |>
-    summarise(mean_norm.LCAT.ratio = mean(norm.LCAT.ratio),
-              sd = sd(norm.LCAT.ratio),
-              cv = sd/mean_norm.LCAT.ratio) |>
-    mutate(treatment = factor(treatment, levels = c("placebo","fiber")),
+    summarise(mean_norm.LCAT.ratio = mean(norm.LCAT.ratio)) |>
+    mutate(treatment = factor(treatment, levels = c("Placebo","Prebiotic")),
            timepoint = factor(timepoint, levels = c("pre", "post")),
            subject = as.factor(subject))
 
-lcat_treatment_summary <- lcat |>
-    group_by(treatment, timepoint) |>
+lcat_treatment_summary <- lcat_rename |>
+    group_by(subject, treatment, timepoint) |>
     summarise(mean_norm.LCAT.ratio = mean(norm.LCAT.ratio),
-              sd = sd(norm.LCAT.ratio))
+              sd = sd(norm.LCAT.ratio)) |>
+    mutate(treatment = factor(treatment, levels = c("Placebo","Prebiotic")),
+           timepoint = factor(timepoint, levels = c("pre", "post")),
+           subject = as.factor(subject))
 
-datatable(lcat_treatment_summary, colnames = c("Treatment","Timepoint","LCAT Activity Index","SD")) |>
+datatable(lcat_treatment_summary, colnames = c("Subject","Treatment","Timepoint","LCAT Activity Index","SD")) |>
     formatRound(columns = c("mean_norm.LCAT.ratio","sd"), digits = 3)
 
 # boxplot, all data points
@@ -515,13 +489,32 @@ LCAT_plot <- ggplot(lcat_summary, aes(timepoint, mean_norm.LCAT.ratio))+
 
 LCAT_plot
 
-ggsave(plot = LCAT_plot, filename = here("figures","LCAT_plot.jpg"),
+ggsave(plot = LCAT_plot, filename = here("figures","LCAT_plot.tiff"),
                                 dpi = 300,
        width = 8,
        height = 6)
 ```
 
 > LCAT activity was not significantly different between pre vs post among treatment groups.
+
+## LCAT output prep to excel
+```{r}
+lcat_treatment_summary_wide <- lcat_treatment_summary |>
+    mutate("LCAT Activity Index +/- SD" = paste0(round(mean_norm.LCAT.ratio,3), " ± ",round(sd,3))) |>
+    dplyr::select(-mean_norm.LCAT.ratio,-sd) |>
+    pivot_wider(names_from = "timepoint", values_from = "LCAT Activity Index +/- SD")
+
+```
+
+
+
+## Write Excel Sheet for LBP Treatment and Median, LCAT Activity Index
+```{r}
+list_of_datasets <- list("LBP by Treatment" = treatment_summary_wide, 
+                         "LBP by Median" = plate_long_fiber_summary_output,
+                         "LCAT Activity Index" = lcat_treatment_summary_wide)
+write.xlsx(list_of_datasets, file = here("output","LBP Analysis by Treatment and Median, LCAT Activity Index by Treatment.xlsx"))
+```
 
 ***
 
@@ -541,23 +534,24 @@ combined_plots <- plot_grid(LBP_plot, LCAT_plot, labels = c("A", "B"), ncol = 2)
 final_plot <- plot_grid(combined_plots, common_legend, ncol = 1, rel_heights = c(1, 0.25))
 
 print(final_plot)
-ggsave(plot = final_plot, filename = here("figures","LBP_LCAT_plot.jpg"),
+ggsave(plot = final_plot, filename = here("figures","LBP_LCAT_plot.tiff"),
        dpi = 300,
        height = 6,
-       width = 8)
+       width = 8,
+       bg = 'white')
 ```
 
 
 ## Log LBP Correlation with LCAT activity
 ```{r message = F}
-lcat <- lcat |>
-    dplyr::select(subject, treatment, timepoint, norm.LCAT.ratio) |>
+lcat_corr <- lcat_rename |>
+    dplyr::select(-Sample, subject, treatment, timepoint, norm.LCAT.ratio) |>
     mutate(subject = as.factor(subject))
 
-lcat <- lcat |>
+lcat_corr <- lcat_corr |>
     left_join(plate_summary)
 
-cor <- rmcorr(subject, measure1 = norm.LCAT.ratio, measure2 = log(mean_conc_ng_ml), dataset = lcat)
+cor <- rmcorr(subject, measure1 = norm.LCAT.ratio, measure2 = log(mean_conc_ng_ml), dataset = lcat_corr)
 cor
 ```
 
@@ -578,7 +572,7 @@ data_subset <- cbind(group_id = group_id, LBP = LBP, data_subset)
 
 
 # List to store the results
-results_list <- list()
+results_list_lbp <- list()
 
 # Loop to perform rmcorr for each variable
 for(i in 3:(ncol(data_subset))) {
@@ -591,7 +585,7 @@ for(i in 3:(ncol(data_subset))) {
 
 
 # Convert list to data frame
-results_df <- results_list %>%
+results_df_lbp <- results_list %>%
   purrr::map_dfr(function(x) {
     tibble(
       Rmcorr = x$r,
@@ -602,12 +596,13 @@ results_df <- results_list %>%
     sig = insight::format_p(padj, name = NULL, stars_only = TRUE))
   }, .id = "Variable")
 
-results_df <- results_df |>
+results_df_lbp <- results_df_lbp |>
     mutate(padj = p.adjust(p_value, method = "BH"),
            sig = insight::format_p(padj, name = NULL, stars_only = TRUE))
 # Display as data table
-datatable(results_df) |>
+datatable(results_df_lbp) |>
     formatRound(columns = c("Rmcorr","CI_lower","CI_upper","p_value","padj"), digits = 3)
+
 
 ```
 
@@ -634,7 +629,7 @@ data_subset <- cbind(group_id = group_id, LCAT = LCAT, data_subset)
 
 
 # List to store the results
-results_list <- list()
+results_list_lcat <- list()
 
 # Loop to perform rmcorr for each variable
 for(i in 3:(ncol(data_subset))) {
@@ -642,13 +637,13 @@ for(i in 3:(ncol(data_subset))) {
                       participant = "group_id", 
                       measure1 = "LCAT", 
                       measure2 = names(data_subset)[i])
-    results_list[[names(data_subset)[i]]] <- results
+    results_list_lcat[[names(data_subset)[i]]] <- results
 }
 
 
 # Convert list to data frame
 
-results_df <- results_list|>
+results_df_lcat <- results_list_lcat|>
   purrr::map_dfr(function(x) {
     tibble(
       Rmcorr = x$r,
@@ -658,11 +653,11 @@ results_df <- results_list|>
     )
   }, .id = "Variable")
 
-results_df <- results_df |>
+results_df_lcat <- results_df_lcat |>
     mutate(padj = p.adjust(p_value, method = "BH"),
            sig = insight::format_p(padj, name = NULL, stars_only = TRUE))
 # Display as data table
-datatable(results_df) |>
+datatable(results_df_lcat) |>
     formatRound(columns = c("Rmcorr","CI_lower","CI_upper","p_value","padj"), digits = 3)
 
 ```
@@ -675,12 +670,42 @@ datatable(results_df) |>
 
 These results indicate that there is a significant positive correlation between LCAT activity and cholesterol, LCAT activity and HDL, and LCAT activity and LDL. The p-values associated with these correlations indicate the statistical significance of the observed relationships. An adjusted p-value less than the conventional threshold (e.g., 0.05) suggests that the correlation is unlikely to occur by chance.
 
+
+## Combine LCAT and LBP Correlation with Clinical for Manuscript
+```{r}
+
+results_df_lbp <- results_df_lbp |>
+    mutate(Rmcorr = round(Rmcorr,2),
+           CI_lower = round(CI_lower, 2),
+           CI_upper = round(CI_lower, 2),
+        `95% CI` = paste0(CI_lower,", ", CI_upper),
+.after = Rmcorr) |>
+    dplyr::select(-CI_lower,-CI_upper)
+
+results_df_lcat <- results_df_lcat |>
+    mutate(Rmcorr = round(Rmcorr,2),
+           CI_lower = round(CI_lower, 2),
+           CI_upper = round(CI_lower, 2),
+        `95% CI` = paste0(CI_lower,", ", CI_upper),
+.after = Rmcorr) |>
+    dplyr::select(-CI_lower,-CI_upper)
+
+#list_of_datasets_clinical <- list("LBP Rmcorr Clinical" = results_df_lbp, 
+                         #"LCAT Rmcorr Clinical" = results_df_lcat)
+#write.xlsx(list_of_datasets_clinical, file = here("output","LBP and LCAT Rmcorr with clinical data.xlsx"))
+
+```
+
 ***
 
 ## LBP Correlation with Microbiome
 ```{r}
 taxa <- readRDS(here("microbiome","data","taxa.rds"))
 taxa.id <- paste0(taxa$pdata$subject, tolower(taxa$pdata$trt), taxa$pdata$timepoint)
+## Change "fiber" name to Prebiotic and change "placebo" to "Placebo"
+taxa.id <- gsub("fiber", "Prebiotic", taxa.id)
+taxa.id <- gsub("placebo", "Placebo", taxa.id)
+
 LBP.id <- paste0(plate_summary$subject, plate_summary$treatment, plate_summary$timepoint)
 overlapped.id <- taxa.id %in% LBP.id
 
@@ -730,7 +755,7 @@ rmcor.plot <- function(x, xlab, ylab){
         geom_point(aes(colour = factor(Participant), group = factor(Participant))) +
         geom_line(aes(y = x$model$fitted.values, group = factor(Participant), color = factor(Participant)), linetype = 1) +
         theme_bw() +
-        labs(x = paste(xlab, "log-transformed"), y = ylab)
+        labs(x = paste(xlab, "log(counts)"), y = ylab)
     xmax <- max(df$Measure1)
     ymax <- max(df$Measure2)
     p <- p +
@@ -749,6 +774,45 @@ plots
 
 > 5 Microbes were significantly correlated with LBP (unadjusted p-value). However, none were significant after multiple testing correction. 
 
+
+## Save the five plots for manuscript
+```{r}
+# Extract each plot into a separate object
+plot1 <- plots[[1]] + labs(color = "subject") + theme(text = element_text(size=20)) + theme(legend.position = "none")
+plot2 <- plots[[2]] + labs(color = "subject") + theme(text = element_text(size=20)) + theme(legend.position = "none")
+plot3 <- plots[[3]] + labs(color = "subject") + theme(text = element_text(size=20)) + theme(legend.position = "none")
+plot4 <- plots[[4]] + labs(color = "subject") + theme(text = element_text(size=20)) + theme(legend.position = "none")
+plot5 <- plots[[5]] + labs(color = "subject") + theme(text = element_text(size=20)) + theme(legend.position = "none")
+
+
+## Extract Common legend
+plot1_legend <- plots[[1]] + labs(color = "subject") + theme(text = element_text(size=20)) + guides(color = guide_legend(ncol = 3))
+
+leg <- get_legend(plot1_legend)
+leg <- as_ggplot(leg)
+
+figure_LBP_microbiome <- ggarrange(plot1, plot2, plot3, plot4, plot5, leg,
+align='h', labels=c('A', 'B','C','D',"E", "F"))
+
+
+figure_LBP_microbiome <- plot1 + theme(legend.position = "none") +
+    plot2 + theme(axis.title.y = element_blank(), legend.position = "none") +
+    plot3 + theme(axis.title.y = element_blank(), legend.position = "none") +
+    plot4 + theme(legend.position = "none") +
+    plot5 + theme(axis.title.y = element_blank(), legend.position = "none") +
+    leg + theme(text = element_text(size=18)) +
+        plot_layout(ncol = 3, nrow = 2) +
+    plot_annotation(tag_levels = 'A')
+
+ggsave(here("figures","LBP_microbiome_corr.jpg"), 
+       figure_LBP_microbiome, 
+       scale = 2, 
+       dpi = 300,
+       width = 10,
+       height = 6,
+       bg = "white")
+```
+
 ***
 
 ### Table of Repeated Measure Correlation (LBP and Microbes)
@@ -761,9 +825,11 @@ rmcor.cpm <- data.frame(
     padj = padjs,
     sig = insight::format_p(padjs, name = NULL, stars_only = TRUE)
 )
-datatable(rmcor.cpm, colnames = c("Genus","Correlation (r)","p-value","Adjusted p-value","Sig level")) %>%
+datatable(rmcor.cpm, colnames = c("Genus","Repeated Measure Correlation (rmcorr)","p-value","Adjusted p-value","Sig level")) %>%
         formatRound(columns = "rmcor", digits = 2) %>%
         formatRound(columns = c("pval","padj"), digits = 3)
+
+rmcor.cpm.lbp <- rmcor.cpm
 ```
 
 
@@ -824,7 +890,7 @@ rmcor.plot <- function(x, xlab, ylab){
         geom_point(aes(colour = factor(Participant), group = factor(Participant))) +
         geom_line(aes(y = x$model$fitted.values, group = factor(Participant), color = factor(Participant)), linetype = 1) +
         theme_bw() +
-        labs(x = paste(xlab, "log-transformed"), y = ylab)
+        labs(x = paste(xlab, "log(counts)"), y = ylab)
     xmax <- max(df$Measure1)
     ymax <- max(df$Measure2)
     p <- p +
@@ -845,6 +911,89 @@ plots
 
 ***
 
+## Save the 14 plots for manuscript
+```{r}
+# Extract each plot into an object
+plot1 <- plots[[1]] + labs(color = "subject") + 
+   theme(text = element_text(size=18), legend.position = "none")
+
+plot2 <- plots[[2]] + labs(color = "subject") +
+   theme(text = element_text(size=18), legend.position = "none")  
+
+plot3 <- plots[[3]] + labs(color = "subject") +
+   theme(text = element_text(size=18), legend.position = "none")
+
+plot4 <- plots[[4]] + labs(color = "subject") +
+   theme(text = element_text(size=18), legend.position = "none")
+
+plot5 <- plots[[5]] + labs(color = "subject") +
+   theme(text = element_text(size=18), legend.position = "none")
+
+plot6 <- plots[[6]] + labs(color = "subject") +
+   theme(text = element_text(size=18), legend.position = "none")
+plot7 <- plots[[7]] + labs(color = "subject") +
+   theme(text = element_text(size=18), legend.position = "none")
+plot8 <- plots[[8]] + labs(color = "subject") +
+   theme(text = element_text(size=18), legend.position = "none")
+plot9 <- plots[[9]] + labs(color = "subject") +
+   theme(text = element_text(size=18), legend.position = "none")
+plot10 <- plots[[10]] + labs(color = "subject") +
+   theme(text = element_text(size=18), legend.position = "none")
+plot11 <- plots[[11]] + labs(color = "subject") +
+   theme(text = element_text(size=18), legend.position = "none")
+plot12 <- plots[[12]] + labs(color = "subject") +
+   theme(text = element_text(size=18), legend.position = "none")
+plot13 <- plots[[13]] + labs(color = "subject") +
+   theme(text = element_text(size=18), legend.position = "none")
+plot14 <- plots[[14]] + labs(color = "subject") +
+   theme(text = element_text(size=18), legend.position = "none")
+
+## Extract Common legend
+plot1_legend <- plots[[1]] + labs(color = "subject") + theme(text = element_text(size=20)) + guides(color = guide_legend(ncol = 3))
+
+leg <- get_legend(plot1_legend)
+leg <- as_ggplot(leg)
+
+# Arrange plots in 4x4 grid with legend
+figure_LCAT_cor <- ggarrange(plot1, plot2, plot3, plot4,  
+                    plot5, plot6, plot7, 
+                    plot8, plot9, plot10,
+                    plot11, plot12, plot13,
+                    plot14,leg,
+                    ncol = 5,
+                    nrow = 3,
+                    common.legend = FALSE)
+
+
+figure_LCAT_cor <- plot1 + theme(legend.position = "none") +
+    plot2 + theme(axis.title.y = element_blank(), legend.position = "none") +
+    plot3 + theme(axis.title.y = element_blank(), legend.position = "none") +
+    plot4 + theme(axis.title.y = element_blank(), legend.position = "none") +
+    plot5 + theme(axis.title.y = element_blank(), legend.position = "none") +
+    plot6 + theme(legend.position = "none") +
+    plot7 + theme(axis.title.y = element_blank(), legend.position = "none") +
+    plot8 + theme(axis.title.y = element_blank(), legend.position = "none") +
+    plot9 + theme(axis.title.y = element_blank(), legend.position = "none") +
+    plot10 + theme(axis.title.y = element_blank(), legend.position = "none") +
+    plot11 + theme(legend.position = "none") +
+    plot12 + theme(axis.title.y = element_blank(), legend.position = "none") +
+    plot13 + theme(axis.title.y = element_blank(), legend.position = "none") + 
+    plot14 +theme(axis.title.y = element_blank(), legend.position = "none") +
+    plot_layout(ncol = 5, nrow = 3) +
+    leg + theme(text = element_text(size=18)) +
+    plot_annotation(tag_levels = 'A')
+                    
+# Save figure                    
+ggsave(figure_LCAT_cor, filename = here("figures","LCAT_microbiome_corr.tiff"),
+  scale = 1.5, 
+  dpi = 300,
+  width = 15, height = 10,
+  bg = "white")
+
+
+```
+
+
 ### Table of Repeated Measure Correlation (Normalized LCAT activity and Microbes)
 
 ```{r}
@@ -858,6 +1007,17 @@ rmcor.cpm <- data.frame(
 datatable(rmcor.cpm, colnames = c("Genus","Correlation (r)","p-value","Adjusted p-value","Sig level")) %>%
         formatRound(columns = "rmcor", digits = 2) %>%
         formatRound(columns = c("pval","padj"), digits = 3)
+
+rmcor.cpm.LCAT <- rmcor.cpm
+```
+
+
+## Write Excel for LBP and LCAT correlaton with Microbes
+```{r}
+list_of_datasets <- list("LBP corr Microbes" = rmcor.cpm.LBP, 
+                         "LCAT corr Microbes" = rmcor.cpm.LCAT)
+
+write.xlsx(list_of_datasets, file = here("output","LBP and LCAT Corr Microbes.xlsx"))
 ```
 
 ***
@@ -1023,7 +1183,6 @@ print(top30_lbp_metabolite_plot)
 ```{r message = F, warning = F}
 metabolites_full_lcat <- lcat_summary |>
     mutate(subject = as.character(subject)) |>
-    dplyr::select(!c(sd,cv)) |>
     left_join(metabolites_full)
 ```
 
@@ -1136,11 +1295,12 @@ top30_lcat_metabolite_plot <- ggplot(top_results_df, aes(x = reorder(PLOT_NAME, 
     guides(fill = guide_legend(nrow = 2))
 
 print(top30_lcat_metabolite_plot)
-ggsave(top30_lcat_metabolite_plot, filename = here("figures","LCAT_metabolite_corr.jpg"),
+ggsave(top30_lcat_metabolite_plot, filename = here("figures","LCAT_metabolite_corr.tiff"),
        dpi= 300,
        height = 8,
        width = 10,
-       scale = 1.8)
+       scale = 1.8,
+       bg = "white")
 ```
 
 > The top 30 absolute correlation (rrmcorr) is displayed in this bar plot.
@@ -1158,11 +1318,12 @@ combined_plots <- ggarrange(top30_lbp_metabolite_plot, top30_lcat_metabolite_plo
 
 
 
-ggsave(plot = combined_plots, filename = here("figures","LBP_LCAT_metabolite_plot.jpg"),
+ggsave(plot = combined_plots, filename = here("figures","LBP_LCAT_metabolite_plot.tiff"),
        dpi = 300,
        height = 6,
        width = 10,
-       scale = 2.5)
+       scale = 2.5,
+       bg = "white")
 ```
 
 ***
