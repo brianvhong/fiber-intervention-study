@@ -722,12 +722,12 @@ for(i in 3:(ncol(data_subset))) {
                       participant = "group_id", 
                       measure1 = "LBP", 
                       measure2 = names(data_subset)[i])
-    results_list[[names(data_subset)[i]]] <- results
+    results_list_lbp[[names(data_subset)[i]]] <- results
 }
 
 
 # Convert list to data frame
-results_df_lbp <- results_list %>%
+results_df_lbp <- results_list_lbp %>%
   purrr::map_dfr(function(x) {
     tibble(
       Rmcorr = x$r,
@@ -974,6 +974,18 @@ datatable(rmcor.cpm, colnames = c("Genus","Repeated Measure Correlation (rmcorr)
 rmcor.cpm.lbp <- rmcor.cpm
 ```
 
+## Significance and direction LBP and Microbe
+```{r}
+nrow(rmcor.cpm)
+# Positive Rmcorr
+pos_count <- sum(rmcor.cpm$pval[rmcor.cpm$rmcor > 0] < 0.05)
+pos_count
+# Negative Rmcorr  
+neg_count <- sum(rmcor.cpm$pval[rmcor.cpm$rmcor < 0] < 0.05)
+neg_count
+```
+
+> Of the 185 microbes examined, 3 showed statistically significant positive correlations, while 2 showed statistically significant negative correlations with LBP.
 
 ***
 
@@ -1153,6 +1165,18 @@ datatable(rmcor.cpm, colnames = c("Genus","Correlation (r)","p-value","Adjusted 
 rmcor.cpm.LCAT <- rmcor.cpm
 ```
 
+## Significance and direction LCAT and Microbe
+```{r}
+nrow(rmcor.cpm)
+# Positive Rmcorr
+pos_count <- sum(rmcor.cpm$pval[rmcor.cpm$rmcor > 0] < 0.05)
+pos_count
+# Negative Rmcorr  
+neg_count <- sum(rmcor.cpm$pval[rmcor.cpm$rmcor < 0] < 0.05)
+neg_count
+```
+
+> Of the 185 microbes examined, 11 showed statistically significant positive correlations, while 3 showed statistically significant negative correlations with LCAT activity.
 
 ## Write Excel for LBP and LCAT correlaton with Microbes
 ```{r}
@@ -1254,6 +1278,18 @@ datatable(results_df, colnames = c("Compound","Super Pathway","Subpathway","Rmco
 
 > There are 50 metabolites out of 890 metabolites were significantly correlated with LBP, but none were signficant after multiple testing. 
 
+## Significance and direction LBP and Plasma Metabolite
+```{r}
+nrow(results_df)
+# Positive Rmcorr
+pos_count <- sum(results_df$p_value[results_df$Rmcorr > 0] < 0.05)
+pos_count
+# Negative Rmcorr  
+neg_count <- sum(results_df$p_value[results_df$Rmcorr < 0] < 0.05)
+neg_count
+```
+
+> Of the 890 plasma metabolites examined, 35 showed statistically significant positive correlations, while 15 showed statistically significant negative correlations with LBP. 
 
 ## LBP corr with metabolite barplot
 ```{r}
@@ -1385,6 +1421,18 @@ datatable(results_df, colnames = c("Compound","Super Pathway","Subpathway","Rmco
 
 > 47/890 metabolites were significantly correlated with LCAT activity, however none reach statistical significance after multiple testing.
 
+## Significance and direction LBP and Plasma Metabolite
+```{r}
+nrow(results_df)
+# Positive Rmcorr
+pos_count <- sum(results_df$p_value[results_df$Rmcorr > 0] < 0.05)
+pos_count
+# Negative Rmcorr  
+neg_count <- sum(results_df$p_value[results_df$Rmcorr < 0] < 0.05)
+neg_count
+```
+
+> Of the 890 plasma metabolites examined, 15 showed statistically significant positive correlations, while 18 showed statistically significant negative correlations with LCAT activity. 
 
 ## LCAT corr with metabolite barplot
 ```{r}

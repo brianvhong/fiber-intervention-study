@@ -1,0 +1,584 @@
+---
+title: "Fiber Study: Statistical Analysis of Gene Expression Data for Correlation with Lipopolysaccharide Binding Protein (LBP) and Lecithin-Cholesterol Acyltransferase (LCAT) Activity"
+author: "Brian"
+date: "2023-05-18"
+output: 
+    html_document:
+        toc: true
+        toc_float: true
+        code_folding: hide
+---
+
+## Introduction
+
+This study explored the correlation between gene expression profiles and Lipopolysaccharide Binding Protein (LBP) and Lecithin-Cholesterol Acyltransferase (LCAT) activity. We employed edgeR and limma-voom transformation methodologies, two frequently used statistical tools for gene expression data analysis.
+
+## Methods
+### Data Preparation and Pre-processing
+
+The raw gene expression data underwent pre-processing to remove background noise and normalize the values across different samples. This process ensures data quality and minimizes technical variation. We then filtered the data to remove low expression genes.
+
+
+### edgeR Analysis
+
+edgeR, a Bioconductor package, was used to identify differentially expressed genes. It leverages empirical Bayes estimation and exact tests based on the negative binomial distribution. edgeR was particularly suited for our analysis given its robustness in managing biological and experimental variability.
+
+### limma-voom Transformation
+
+Following the edgeR analysis, we applied the limma-voom transformation to our data. Limma-voom is a method for the analysis of gene expression data that specifically deals with RNA-sequencing (RNA-seq) data. It estimates the mean-variance relationship of the log-counts, generates a precision weight for each observation, and enters these into the limma empirical Bayes analysis pipeline. The voom transformation of limma ensures that the data meets the assumptions of standard linear statistical methods even when the original count data does not.
+
+### Correlation Analysis with LBP and LCAT Activity
+
+Post limma-voom transformation, we examined the correlation between the gene expression profiles and LBP and LCAT activity. Correlation coefficients were calculated for each gene with LBP and LCAT activity. The p-values were then adjusted for multiple testing to control the false discovery rate.
+
+### For Manuscript Statistical Analysis
+
+R software (version 4.2.2) was employed for the analysis of gene expression data, utilizing the edgeR package for differential expression and limma-voom for data transformation. Post-preprocessing and exclusion of lowly expressed genes, the transformed data were correlated with Lipopolysaccharide Binding Protein (LBP) and Lecithin-Cholesterol Acyltransferase (LCAT) activity. P-values were adjusted to control for the false discovery rate using the Benjamini-Hochberg method. The application of edgeR and limma-voom packages facilitated the identification of pertinent genes associated with LBP and LCAT activity.
+
+
+
+## Packages
+```{r}
+if(!any(rownames(installed.packages()) == "pacman"))
+        install.packages("pacman")
+if(!any(rownames(installed.packages()) == 'HTSet'))
+        devtools::install_github("zhuchcn/HTSet")
+
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+
+pacman::p_load(here,
+               tidyverse,
+               rstatix,
+               DT,
+               ggpubr,
+               readxl,
+               reshape2,
+                forcats,
+               drc,
+               rmcorr,
+               cowplot,
+               RColorBrewer,
+               limma,
+               edgeR,
+               htmltools,
+               openxlsx)
+```
+
+
+## Data Cleaning
+```{r message = F}
+lcat <- readRDS(here("LCAT","data","LCAT_summary_filter_223B.rds")) 
+standard <- read_excel(here("LBP","standard","standard_lbp.xlsx"))
+subject_characteristic <- read_csv(here("subject_characteristics","USANA Study Clinical Meta Data Sheet copy.csv")) |>
+    mutate(sample = as.character(sample)) |>
+    na.omit()
+
+sample_sheet <- read_excel(here("subject_characteristics","P-00CL weighted USANA Walton (2020-05-26)-.xlsx"),
+                           sheet = "Sample Sheet",
+                           range  = "B21:E161") |>
+    separate(`Your Sample ID`, into = c("subject", "code"), sep = 3) |>
+    filter(!code %in% c("A","D","E")) |>
+    rename(treatment = Group) |>
+  mutate(treatment = case_when(
+    treatment == "Treatment A" ~ "Prebiotic",
+    treatment == "Treatment B" ~ "Placebo",
+    TRUE ~ treatment
+  ),
+  timepoint = case_when(
+      code == "B" | code == "F" ~ "pre",
+      code == "C" | code == "G" ~ "post"
+  ),
+  subject = as.character(subject)) |>
+    dplyr::select(!c("Sampling Date","Sample Type"))
+    
+
+
+plate_1 <- read_excel(here("LBP","raw","fslbp1-40.xlsx"), 
+                    sheet = "Sheet1",
+                    range = "B46:N54",
+                    
+) |>
+        column_to_rownames(var = 1) |>
+        as.matrix() |>
+        melt(value.name = "absorbance",
+             na.rm = TRUE)
+plate_1$position <- paste0(plate_1$Var1, plate_1$Var2)
+
+        
+plate_2 <- read_excel(here("LBP","raw","fslbp41-80.xlsx"), 
+                    sheet = "Sheet1",
+                    range = "B77:N85",
+                    
+) |>
+        column_to_rownames(var = 1) |>
+        as.matrix() |>
+        melt(value.name = "absorbance",
+             na.rm = TRUE)
+plate_2$position <- paste0(plate_2$Var1, plate_2$Var2)
+
+plate_layout_1 <-  read_excel(here("LBP","plate_design","fslbp1-40_plate_design.xlsx"),
+                    range = "A1:M9",
+                    sheet = "Sheet1"
+                    
+) |>
+        column_to_rownames(var = 1) |>
+        as.matrix() |>
+        melt() |>
+        rename(sample = "value") |>
+        filter(!sample %in% "NA")
+plate_layout_1$position <- paste0(plate_layout_1$Var1, plate_layout_1$Var2) 
+
+
+plate_layout_2 <-  read_excel(here("LBP","plate_design","fslbp41-80_plate_design.xlsx"),
+                    range = "A1:M9",
+                    sheet = "Sheet1"
+                    
+) |>
+        column_to_rownames(var = 1) |>
+        as.matrix() |>
+        melt() |>
+        rename(sample = "value") |>
+        filter(!sample %in% "NA")
+plate_layout_2$position <- paste0(plate_layout_2$Var1, plate_layout_2$Var2) 
+
+plate_1 <- plate_1 |>
+    left_join(plate_layout_1) |>
+    mutate(sample = gsub(" ", "",sample))
+
+plate_2 <- plate_2 |>
+    left_join(plate_layout_2)
+```
+
+
+## LBP Standard: Four Parameter Logistic Regression
+```{r message = F}
+
+plate_1_standard <- plate_1 |>
+    left_join(standard)
+
+model1<-drm(absorbance~conc_pg_ml,
+             fct=LL.4(names=c("Slope", "Lower", "Upper", "ED50")),
+data=plate_1_standard)
+plot(model1,
+     main = "Plate 1")
+
+
+plate_2_standard <- plate_2 |>
+    left_join(standard)
+
+model2<-drm(absorbance~conc_pg_ml,
+             fct=LL.4(names=c("Slope", "Lower", "Upper", "ED50")),
+data=plate_2_standard)
+plot(model2,
+     main = "Plate 2")
+
+```
+
+## Estimate Concentration
+
+```{r message = F}
+
+### Plate 1
+dilution_factor <- 800
+
+plate_1_filter <- plate_1 |>
+    filter(!grepl(pattern = "S", x = sample))
+
+conc <-as.data.frame(ED(model1,plate_1_filter$absorbance,type="absolute",display=F))
+conc_pg_ml <- conc$Estimate * dilution_factor
+
+plate_1_filter <- cbind(plate_1_filter, conc_pg_ml)
+
+### Plate 2
+
+plate_2_filter <- plate_2 |>
+    filter(!grepl(pattern = "S", x = sample))
+
+conc <-as.data.frame(ED(model2,plate_2_filter$absorbance,type="absolute",display=F))
+conc_pg_ml <- conc$Estimate * dilution_factor
+
+plate_2_filter <- cbind(plate_2_filter, conc_pg_ml)
+
+plate_combined <- plate_1_filter |>
+    bind_rows(plate_2_filter) |>
+    mutate(conc_ng_ml = conc_pg_ml/1000) |>
+    left_join(subject_characteristic) |>
+    mutate(treatment = ifelse(treatment=="A", "fiber", "placebo"),
+           treatment = factor(treatment, levels = c("placebo","fiber")),
+           timepoint = factor(timepoint, levels = c("pre", "post"))) 
+
+plate_summary <- plate_combined |>
+    group_by(subject, treatment, timepoint, gender) |>
+    summarise(mean_conc_ng_ml = mean(conc_ng_ml),
+              sd = sd(conc_ng_ml),
+              cv = sd/mean_conc_ng_ml*100) |>
+    mutate(subject = as.factor(subject))
+
+plate_mean_lbp <- plate_combined |>
+    group_by(subject, treatment, timepoint, `timepoint coded`) |>
+    summarise(mean_conc_ng_ml = mean(conc_ng_ml)) |>
+    mutate(subject = as.character(subject)) |>
+    dplyr::select(!"timepoint coded") |>
+    mutate(treatment = ifelse(treatment == "fiber","Prebiotic","Placebo")) |>
+    left_join(sample_sheet)
+
+lcat_summary <- lcat |>
+    dplyr::select(subject, treatment, timepoint, norm.LCAT.ratio) |>
+    mutate(subject = as.character(subject),
+           treatment = ifelse(treatment == "fiber","Prebiotic","Placebo")) |>
+    left_join(sample_sheet)
+    
+    
+
+
+```
+
+## LBP and Genes
+
+### Data Clean Up
+```{r echo = F}
+
+genes <- read.delim(file = here("genes","raw","kotable-enzyme-filtered-absolute.tsv"), sep = "\t")
+
+# Remove 'X' from column names
+colnames(genes) <- gsub("^X", "", colnames(genes)) 
+
+
+
+counts <- genes %>%
+  distinct() %>%
+  column_to_rownames(var = ".ko_enzyme") %>%
+  as.matrix()
+
+## Create DGEList
+d0 <- DGEList(counts)
+    
+## Preprocessing, normalization factor
+d0 <- calcNormFactors(d0)
+
+## Filter low-expressed genes
+cutoff <- 1
+drop <- which(apply(cpm(d0), 1, max) < cutoff)
+d <- d0[-drop,] 
+dim(d) # number of genes left
+
+
+## Sample Name
+snames <- colnames(counts) # Sample names
+
+
+cultivar <- substr(snames, 1, nchar(snames) - 1) 
+time <- substr(snames, nchar(snames) - 0, nchar(snames) - 0)
+
+
+group <- interaction(cultivar, time)
+
+## Voom
+y <- voom(d)
+
+
+genes_normalized <- as.data.frame(y$E) |>
+    rownames_to_column(var = ".ko_enzyme")
+
+# Separate enzyme column by semicolon and remove space
+genes_normalized <- separate(genes_normalized, .ko_enzyme, into = c("abrev", "enzyme"), sep = ";\\s*", remove = TRUE)
+
+# Split the "abrev" column at the space between number and letter
+genes_normalized <- separate(genes_normalized, abrev, into = c("number", "letter"), sep = "\\s+", remove = TRUE)
+
+# Remove , in string 
+genes_normalized$letter <- gsub(",", "", genes_normalized$letter)
+
+
+gene_name <- genes_normalized |>
+    dplyr::select(letter, enzyme)
+
+# Remove the 'other' column
+genes_subet <- genes_normalized |>
+    dplyr::select(- number, - enzyme) 
+
+
+# Convert back to long format
+genes_long <- genes_subet %>%
+  pivot_longer(cols = 2:141, names_to = "sample", values_to = "count") |>
+    group_by(letter, sample) |>
+    summarize(count = mean(count))
+
+
+# Split the `letter` values into separate columns
+genes_wide <- genes_long %>%
+  pivot_wider(names_from = letter, values_from = count) |>
+    separate(sample, into = c("subject", "code"), sep = 3)
+
+
+
+genes_full <- plate_mean_lbp |>
+    left_join(genes_wide)
+
+```
+
+### LBP and Genes repeated measure correlation
+```{r}
+LBP <- log(genes_full$mean_conc_ng_ml)
+# Extract the columns of interest
+data_subset <- genes_full[, 6:1865]
+# Assuming 'subject' is the name of your grouping variable
+group_id <- as.factor(genes_full$subject)
+
+# Add the grouping variable and the repeated measures variable to the data subset
+data_subset <- cbind(group_id = group_id, LBP = LBP, data_subset)
+
+
+
+# List to store the results
+results_list <- list()
+
+# Loop to perform rmcorr for each variable
+for(i in 3:(ncol(data_subset))) {
+    results <- rmcorr(dataset = data_subset, 
+                      participant = "group_id", 
+                      measure1 = "LBP", 
+                      measure2 = names(data_subset)[i])
+    results_list[[names(data_subset)[i]]] <- results
+}
+
+
+# Convert list to data frame
+results_df <- results_list %>%
+  purrr::map_dfr(function(x) {
+    tibble(
+      Rmcorr = x$r,
+      CI_lower = x$CI[1],
+      CI_upper = x$CI[2],
+      p_value = x$p,
+    padj = p.adjust(p_value, method = "BH"),
+    sig = insight::format_p(padj, name = NULL, stars_only = TRUE))
+  }, .id = "letter")
+
+results_df <- results_df |>
+    mutate(padj = p.adjust(p_value, method = "BH"),
+           sig = insight::format_p(padj, name = NULL, stars_only = TRUE)) |>
+    left_join(gene_name) |>
+    relocate(enzyme)
+
+datatable(results_df) |>
+    formatRound(columns = c("Rmcorr","CI_lower","CI_upper","p_value","padj"), digits = 3)
+
+sum(results_df$p_value < 0.05)
+sum(results_df$padj < 0.05)
+
+results_df_LBP <- results_df 
+```
+
+
+> Our statistical analysis identified 22 genes that demonstrated a significant correlation with LBP based on the unadjusted p-values (p<0.05). However, following the adjustment for multiple testing using the Benjamini-Hochberg method, none of these correlations remained statistically significant. This result emphasizes the importance of multiple testing correction in high-throughput gene expression studies to control the false discovery rate and ensure robust findings. Further research is needed to uncover potential genetic correlates of LBP activity.
+
+
+
+***
+
+## LBP Activity and Gene Barplot
+```{r height = 8, width = 20}
+# Select the top 20 absolute Rmcorr 
+top_results_df_LBP <- results_df %>%
+    mutate(abs_Rmcorr = abs(Rmcorr)) %>%
+    top_n(20, abs_Rmcorr)
+
+# Get a palette of 9 colors
+color_palette <- brewer.pal(9, "Set1")
+
+
+
+# Create the bar plot
+top20_LBP_gene_plot <- ggplot(top_results_df_LBP, aes(x = reorder(letter, abs_Rmcorr), y = Rmcorr)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +
+    labs(x = NULL, y = "Repeated Measure (rmcorr)",title = "Top 20 Genes Correlated with LBP") +
+    theme_minimal() + 
+    theme(
+          plot.title = element_text(hjust = 0.5, color = "black"),
+          text = element_text(size = 20, color = "black"),
+          axis.text = element_text(color = "black"),
+          axis.title = element_text(color = "black"),
+          legend.text = element_text(color = "black"),
+          legend.title = element_text(color = "black")) +
+    guides(fill = guide_legend(nrow = 2)) +
+  theme(axis.text.y = element_text(face = "italic"))
+
+print(top20_LBP_gene_plot)
+ggsave(top20_LBP_gene_plot, filename = here("figures","LBP_gene_corr.tiff"),
+       dpi= 300,
+       height = 8,
+       width = 12,
+       bg = "white")
+```
+
+
+***
+
+## LCAT Activity and Genes repeated measure correlation
+
+```{r}
+genes_full <- lcat_summary |>
+    mutate(subject = as.character(subject)) |>
+    left_join(genes_wide) |>
+    ungroup() |>
+    dplyr::select(-1)
+
+LCAT <- genes_full$norm.LCAT.ratio
+# Extract the columns of interest
+data_subset <- genes_full[, 6:1865]
+# Assuming 'subject' is the name of your grouping variable
+group_id <- as.factor(genes_full$subject)
+
+# Add the grouping variable and the repeated measures variable to the data subset
+data_subset <- cbind(group_id = group_id, LCAT = LCAT, data_subset)
+
+
+
+# List to store the results
+results_list <- list()
+
+# Loop to perform rmcorr for each variable
+for(i in 3:(ncol(data_subset))) {
+    results <- rmcorr(dataset = data_subset, 
+                      participant = "group_id", 
+                      measure1 = "LCAT", 
+                      measure2 = names(data_subset)[i])
+    results_list[[names(data_subset)[i]]] <- results
+}
+
+
+# Convert list to data frame
+results_df <- results_list %>%
+  purrr::map_dfr(function(x) {
+    tibble(
+      Rmcorr = x$r,
+      CI_lower = x$CI[1],
+      CI_upper = x$CI[2],
+      p_value = x$p,
+    padj = p.adjust(p_value, method = "BH"),
+    sig = insight::format_p(padj, name = NULL, stars_only = TRUE))
+  }, .id = "letter")
+
+results_df <- results_df |>
+    mutate(padj = p.adjust(p_value, method = "BH"),
+           sig = insight::format_p(padj, name = NULL, stars_only = TRUE)) |>
+    left_join(gene_name) |>
+    relocate(enzyme)
+
+datatable(results_df) |>
+    formatRound(columns = c("Rmcorr","CI_lower","CI_upper","p_value","padj"), digits = 3)
+
+sum(results_df$p_value < 0.05)
+sum(results_df$padj < 0.05)
+
+results_df_LCAT <- results_df
+```
+
+> Our statistical analysis identified 44 genes that demonstrated a significant correlation with LCAT Activity based on the unadjusted p-values (p<0.05). However, following the adjustment for multiple testing using the Benjamini-Hochberg method, none of these correlations remained statistically significant. This result emphasizes the importance of multiple testing correction in high-throughput gene expression studies to control the false discovery rate and ensure robust findings. Further research is needed to uncover potential genetic correlates of LBP activity.
+
+***
+
+## LCAT Activity and Gene Barplot
+```{r height = 8, width = 20}
+# Select the top 20 absolute Rmcorr 
+top_results_df_LCAT <- results_df %>%
+    mutate(abs_Rmcorr = abs(Rmcorr)) %>%
+    top_n(20, abs_Rmcorr)
+
+# Get a palette of 9 colors
+color_palette <- brewer.pal(9, "Set1")
+
+
+
+# Create the bar plot
+top20_LCAT_gene_plot <- ggplot(top_results_df_LCAT, aes(x = reorder(letter, abs_Rmcorr), y = Rmcorr)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +
+    labs(x = NULL, y = "Repeated Measure (rmcorr)",title = "Top 20 Genes Correlated with LCAT Acitivty Index") +
+    theme_minimal() + 
+    theme(
+          plot.title = element_text(hjust = 0.5, color = "black"),
+          text = element_text(size = 20, color = "black"),
+          axis.text = element_text(color = "black"),
+          axis.title = element_text(color = "black"),
+          legend.text = element_text(color = "black"),
+          legend.title = element_text(color = "black")) +
+    guides(fill = guide_legend(nrow = 2)) +
+  theme(axis.text.y = element_text(face = "italic"))
+
+print(top20_LCAT_gene_plot)
+ggsave(top20_LCAT_gene_plot, filename = here("figures","LCAT_gene_corr.tiff"),
+       dpi= 300,
+       height = 8,
+       width = 12,
+       bg = "white")
+```
+
+
+## Combined Gene Correlation with LBP and LCAT
+```{r, fig.width=20, fig.height=8}
+# Combine the plots vertically
+combined_plots <- plot_grid(top20_LBP_gene_plot, top20_LCAT_gene_plot, labels = c("A", "B"), ncol = 2)
+
+
+
+print(combined_plots)
+ggsave(plot = combined_plots, filename = here("figures","LBP_LCAT_gene_plot.jpg"),
+       dpi = 300,
+       height = 6,
+       width = 10,
+       scale = 2,
+       bg = "white")
+```
+
+
+### Output Excel LBP and LCAT corr with Gene to Supplemental file
+```{r}
+
+
+list_of_datasets <- list("LBP Rmcorr Genes" = results_df_LBP, 
+                         "LCAT Rmcorr Genes" = results_df_LCAT)
+write.xlsx(list_of_datasets, file = here("output","LBP and LCAT Activity Corr Genes.xlsx"))
+
+
+```
+
+## Significance and direction (LBP)
+```{r}
+nrow(results_df_LBP)
+# Positive Rmcorr
+pos_count <- sum(results_df_LBP$p_value[results_df_LBP$Rmcorr > 0] < 0.05)
+pos_count
+# Negative Rmcorr  
+neg_count <- sum(results_df_LBP$p_value[results_df_LBP$Rmcorr < 0] < 0.05)
+neg_count
+
+```
+
+> Out of 2067 total genes, there are 14 genes with statistically significant positive correlations and 8 genes with statistically significant negative correlations with LBP (P<0.05).
+
+## Significance and direction (LBP)
+```{r}
+nrow(results_df_LCAT)
+# Positive Rmcorr
+pos_count <- sum(results_df_LCAT$p_value[results_df_LCAT$Rmcorr > 0] < 0.05)
+pos_count
+# Negative Rmcorr  
+neg_count <- sum(results_df_LCAT$p_value[results_df_LCAT$Rmcorr < 0] < 0.05)
+neg_count
+```
+
+> Out of 2067 total genes, there are 2 genes with statistically significant positive correlations and 42 genes with statistically significant negative correlations with LBP (P<0.05).
+
+***
+
+
+## Summary
+
+Our findings have shed light on several genes of interest that show a strong correlation with LBP (n = 22) and LCAT activity (n = 44). These genes could be potential candidates for further exploration in understanding the biological pathways and mechanisms associated with LBP and LCAT activity.
+
+Future studies may validate these findings through laboratory experiments or explore the potential of these genes as therapeutic targets or biomarkers for conditions associated with LBP and LCAT activity.
