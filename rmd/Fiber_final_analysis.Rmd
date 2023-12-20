@@ -877,10 +877,11 @@ rmcorrelation <- function(microbe, y, data){
 
 # repeated measure correlation on all genus
 rmcor.res <- lapply(rownames(genus.cpm), function(x)
-    rmcorrelation(x, LBP, data = genus.cpm)) %>%
+    rmcorrelation(x, LBP, data = genus.cpm)) |>
     `names<-`(rownames(genus.cpm))
+
 # extract p-values
-pvals <- sapply(rmcor.res, function(x)x$p) %>%
+pvals <- sapply(rmcor.res, function(x)x$p) |>
     `names<-`(rownames(genus.cpm))
 # padj
 padjs <- p.adjust(pvals, method = "BH")
@@ -967,6 +968,7 @@ rmcor.cpm <- data.frame(
     padj = padjs,
     sig = insight::format_p(padjs, name = NULL, stars_only = TRUE)
 )
+
 datatable(rmcor.cpm, colnames = c("Genus","Repeated Measure Correlation (rmcorr)","p-value","Adjusted p-value","Sig level")) %>%
         formatRound(columns = "rmcor", digits = 2) %>%
         formatRound(columns = c("pval","padj"), digits = 3)
@@ -988,6 +990,58 @@ neg_count
 > Of the 185 microbes examined, 3 showed statistically significant positive correlations, while 2 showed statistically significant negative correlations with LBP.
 
 ***
+
+## LBP Correlation with change in Bifidobacterium
+```{r}
+plate_summary_lbp_change <- plate_summary |>
+    dplyr::select(subject, treatment, timepoint, mean_conc_ng_ml) |>
+pivot_wider(names_from = timepoint, values_from = mean_conc_ng_ml) |>
+  mutate(Change_lbp = post - pre) |>
+  dplyr::select(subject, treatment, Change_lbp)
+
+
+selected_Bif<- genus.cpm['Bifidobacterium', , drop = FALSE]
+    
+
+df_bif <- data.frame(
+        subject = factor(pdata$subject),
+        microbe = selected_Bif[1,]+1) |>
+    rownames_to_column(var = "group") |>
+  mutate(
+    treatment = ifelse(grepl("Prebiotic", group), "Prebiotic", "Placebo"),
+    timepoint = ifelse(grepl("pre", group), "pre", "post")
+  ) |>
+  dplyr::select(subject, microbe, treatment, timepoint) 
+
+
+df_bif_change <- df_bif |>
+  pivot_wider(names_from = timepoint, values_from = microbe) |>
+  mutate(Change_bif = post - pre) |>
+  dplyr::select(subject, treatment, Change_bif) |>
+    left_join(plate_summary_lbp_change)
+
+# Calculate Kendall's Tau correlation matrix
+cor_matrix <- df_bif_change %>%
+  group_by(treatment) %>%
+  summarise(correlation = cor.test(Change_bif, Change_lbp, method = "kendall")$estimate,
+            p_value = cor.test(Change_bif, Change_lbp, method = "kendall")$p.value)
+
+ xmax <- max(df_bif_change$Change_bif)
+    ymax <- max(df_bif_change$Change_lbp)
+
+change_lbp_bif_plot <- ggplot(df_bif_change, aes(x = Change_bif, y = Change_lbp, color = treatment)) +
+  geom_point() +
+  stat_smooth(method = "lm", se = TRUE, aes(group = treatment, color = treatment)) +
+  theme_minimal() +
+        annotate(
+            "text", x = xmax*0.8, y = c(ymax, ymax*1.1), 
+            label = paste0(c("T = ", "P = "), signif(c(cor_matrix$correlation[cor_matrix$treatment == "Prebiotic"], cor_matrix$p_value[cor_matrix$treatment == "Prebiotic"]), 3))
+        ) +
+    labs(y = "LBP Index change", x = "Bifidobacterium change")
+ggsave(plot = change_lbp_bif_plot,
+       filename = here("figures","change_lbp_bif_kendall.jpg"),
+       dpi = 300)
+```
 
 
 
@@ -1026,9 +1080,11 @@ rmcorrelation <- function(microbe, y, data){
 rmcor.res <- lapply(rownames(genus.cpm), function(x)
     rmcorrelation(x, LCAT, data = genus.cpm)) %>%
     `names<-`(rownames(genus.cpm))
+
 # extract p-values
 pvals <- sapply(rmcor.res, function(x)x$p) %>%
     `names<-`(rownames(genus.cpm))
+
 # padj
 padjs <- p.adjust(pvals, method = "BH")
 
@@ -1180,10 +1236,10 @@ neg_count
 
 ## Write Excel for LBP and LCAT correlaton with Microbes
 ```{r}
-list_of_datasets <- list("LBP corr Microbes" = rmcor.cpm.LBP, 
-                         "LCAT corr Microbes" = rmcor.cpm.LCAT)
+#list_of_datasets <- list("LBP corr Microbes" = rmcor.cpm.LBP, 
+                        # "LCAT corr Microbes" = rmcor.cpm.LCAT)
 
-write.xlsx(list_of_datasets, file = here("output","LBP and LCAT Corr Microbes.xlsx"))
+#write.xlsx(list_of_datasets, file = here("output","LBP and LCAT Corr Microbes.xlsx"))
 ```
 
 ***
@@ -1353,6 +1409,46 @@ print(top30_lbp_metabolite_plot)
 ```
 
 > The top 30 absolute correlation (rrmcorr) is displayed in this bar plot.
+
+## Change in LBP correlation with IPA (indolepropionate)
+```{r}
+plate_summary_lbp_change <- plate_summary |>
+    dplyr::select(subject, treatment, timepoint, mean_conc_ng_ml) |>
+pivot_wider(names_from = timepoint, values_from = mean_conc_ng_ml) |>
+  mutate(Change_lbp = post - pre) |>
+  dplyr::select(subject, treatment, Change_lbp)
+
+
+df_ipa_change <- metabolites_full |>
+    dplyr::select(subject, treatment, timepoint, "100001083") |> # Chem ID for IPA 
+    rename(IPA = "100001083") |>
+    pivot_wider(names_from = timepoint, values_from = IPA) |>
+  mutate(Change_ipa = post - pre) |>
+  dplyr::select(subject, treatment, Change_ipa) |>
+    left_join(plate_summary_lbp_change)
+
+# Calculate Kendall's Tau correlation matrix
+cor_matrix_ipa <- df_ipa_change %>%
+  group_by(treatment) %>%
+  summarise(correlation = cor.test(Change_ipa, Change_lbp, method = "kendall")$estimate,
+            p_value = cor.test(Change_ipa, Change_lbp, method = "kendall")$p.value)
+
+ xmax <- max(df_ipa_change$Change_ipa)
+    ymax <- max(df_ipa_change$Change_ipa)
+
+change_lbp_ipa_plot <- ggplot(df_ipa_change, aes(x = Change_ipa, y = Change_lbp, color = treatment)) +
+  geom_point() +
+  stat_smooth(method = "lm", se = TRUE, aes(group = treatment, color = treatment)) +
+  theme_minimal() +
+        annotate(
+            "text", x = xmax*0.8, y = c(ymax, ymax*1.1), 
+            label = paste0(c("T = ", "P = "), signif(c(cor_matrix_ipa$correlation[cor_matrix_ipa$treatment == "Prebiotic"], cor_matrix_ipa$p_value[cor_matrix_ipa$treatment == "Prebiotic"]), 3))
+        ) +
+    labs(y = "LBP Index change", x = "3-Indolepropionic acid change")
+ggsave(plot = change_lbp_ipa_plot,
+       filename = here("figures","change_lbp_ipa_kendall.jpg"),
+       dpi = 300)
+```
 
 ***
 
