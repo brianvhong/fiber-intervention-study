@@ -65,7 +65,8 @@ pacman::p_load(here,
                viridis,
                ggsci,
                scales,
-               openxlsx)
+               openxlsx,
+               janitor)
 ```
 
 
@@ -139,7 +140,7 @@ plate_2 <- plate_2 |>
 plate_1_standard <- plate_1 |>
     left_join(standard)
 
-model1<-drm(absorbance~conc_pg_ml,
+model1<-drm(absorbance~conc_ng_ml,
              fct=LL.4(names=c("Slope", "Lower", "Upper", "ED50")),
 data=plate_1_standard)
 plot(model1,
@@ -149,7 +150,7 @@ plot(model1,
 plate_2_standard <- plate_2 |>
     left_join(standard)
 
-model2<-drm(absorbance~conc_pg_ml,
+model2<-drm(absorbance~conc_ng_ml,
              fct=LL.4(names=c("Slope", "Lower", "Upper", "ED50")),
 data=plate_2_standard)
 plot(model2,
@@ -170,9 +171,9 @@ plate_1_filter <- plate_1 |>
     filter(!grepl(pattern = "S", x = sample))
 
 conc <-as.data.frame(ED(model1,plate_1_filter$absorbance,type="absolute",display=F))
-conc_pg_ml <- conc$Estimate * dilution_factor
+conc_ng_ml <- conc$Estimate * dilution_factor
 
-plate_1_filter <- cbind(plate_1_filter, conc_pg_ml)
+plate_1_filter <- cbind(plate_1_filter, conc_ng_ml)
 
 ### Plate 2
 
@@ -180,13 +181,14 @@ plate_2_filter <- plate_2 |>
     filter(!grepl(pattern = "S", x = sample))
 
 conc <-as.data.frame(ED(model2,plate_2_filter$absorbance,type="absolute",display=F))
-conc_pg_ml <- conc$Estimate * dilution_factor
 
-plate_2_filter <- cbind(plate_2_filter, conc_pg_ml)
+conc_ng_ml <- conc$Estimate * dilution_factor
+
+plate_2_filter <- cbind(plate_2_filter, conc_ng_ml)
 
 plate_combined <- plate_1_filter |>
     bind_rows(plate_2_filter) |>
-    mutate(conc_ng_ml = conc_pg_ml/1000) |>
+    mutate(conc_ug_ml = conc_ng_ml/1000) |>
     left_join(subject_characteristic) |>
     mutate(treatment = ifelse(treatment=="A", "Prebiotic", "Placebo"),
            treatment = factor(treatment, levels = c("Placebo","Prebiotic")),
@@ -223,7 +225,7 @@ summary_con <- summary(con)
 p_value <- round(summary_con$p.value,3)
 ```
 
->  The estimated difference between fiber and placebo at the "post" timepoint compared to the "pre" timepoint is -0.0906, but it is not statistically significant (p-value = 0.446), indicating that there is no significant difference between fiber and placebo in their effect on the response variable at different timepoints.
+>  The estimated difference between fiber and placebo at the "post" timepoint compared to the "pre" timepoint is -0.11, but it is not statistically significant (p-value = 0.446), indicating that there is no significant difference between fiber and placebo in their effect on the response variable at different timepoints.
 
 ## Table Summary
 ```{r}
@@ -1037,7 +1039,7 @@ change_lbp_bif_plot <- ggplot(df_bif_change, aes(x = Change_bif, y = Change_lbp,
             "text", x = xmax*0.8, y = c(ymax, ymax*1.1), 
             label = paste0(c("T = ", "P = "), signif(c(cor_matrix$correlation[cor_matrix$treatment == "Prebiotic"], cor_matrix$p_value[cor_matrix$treatment == "Prebiotic"]), 3))
         ) +
-    labs(y = "LBP Index change", x = "Bifidobacterium change")
+    labs(y = "LBP change", x = "Bifidobacterium change")
 ggsave(plot = change_lbp_bif_plot,
        filename = here("figures","change_lbp_bif_kendall.jpg"),
        dpi = 300)
@@ -1590,6 +1592,60 @@ ggsave(top30_lcat_metabolite_plot, filename = here("figures","LCAT_metabolite_co
 ```
 
 > The top 30 absolute correlation (rrmcorr) is displayed in this bar plot.
+
+
+## Fiber Consumption Analysis
+```{r}
+fiber_intake <- read_csv(file = here("LBP","raw","FINAL SPREADSHEET.csv")) |>
+    filter(if_any(everything(), ~ !is.na(.))) |>
+    clean_names()
+
+
+LBP <- log(plate_mean_lbp$mean_conc_ng_ml)
+
+# Extract the columns of interest
+total_fiber <- fiber_intake$total_g_day
+# Assuming 'subject' is the name of your grouping variable
+group_id <- as.factor(plate_mean_lbp$subject)
+
+# Add the grouping variable and the repeated measures variable to the data subset
+data_subset <- as.data.frame(cbind(group_id = group_id, LBP = LBP, total_fiber))
+
+
+
+# List to store the results
+results_list <- list()
+
+# Loop to perform rmcorr for each variable
+for(i in 3:(ncol(data_subset))) {
+    results <- rmcorr(dataset = data_subset, 
+                      participant = "group_id", 
+                      measure1 = "LBP", 
+                      measure2 = names(data_subset)[i])
+    results_list[[names(data_subset)[i]]] <- results
+}
+
+results <- rmcorr(dataset = data_subset,
+       participant = "group_id",
+       measure1 = "LBP",
+       measure2 = total_fiber)
+
+# Convert list to data frame
+results_df <- tibble(
+      Rmcorr = results$r,
+      CI_lower = results$CI[1],
+      CI_upper = results$CI[2],
+      p_value = results$p,
+    padj = p.adjust(p_value, method = "BH"),
+    sig = insight::format_p(padj, name = NULL, stars_only = TRUE))
+
+# Display as data table
+datatable(results_df, colnames = c("Rmcorr","CI_lower","CI_upper","p_value","padj","sig")) |>
+    formatRound(columns = c("Rmcorr","CI_lower","CI_upper","p_value","padj"), digits = 3)
+
+#write.csv(results_df,here("output","LBP_fiber_intake_corr.csv"))
+
+```
 
 
 ## Combined Metabolite Correlation with LBP and LCAT
