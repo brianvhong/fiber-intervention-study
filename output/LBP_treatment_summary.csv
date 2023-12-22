@@ -1,5 +1,5 @@
-treatment,timepoint,mean_conc_ng_ml,sd
-placebo,pre,5.9860964134353996,3.096533815312551
-placebo,post,5.981702297578966,3.2095821760603642
-fiber,pre,6.619730580285083,3.8771360494562255
-fiber,post,5.665963909327512,2.647700003730542
+treatment,timepoint,LBP ng/ml,sd
+Placebo,pre,6011.4,3799.73
+Placebo,post,5686.61,3257.95
+Prebiotic,pre,6734.71,3838.63
+Prebiotic,post,5618.02,3256.36
