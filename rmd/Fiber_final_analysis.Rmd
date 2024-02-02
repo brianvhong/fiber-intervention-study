@@ -260,10 +260,10 @@ LBP_plot <- ggplot(plate_summary, aes(timepoint, mean_conc_ng_ml))+
 
 LBP_plot
 
-ggsave(plot = LBP_plot, filename  = here("figures","LPB_plot.jpg"),
-       dpi = 300,
-       width = 8,
-       height = 6)
+#ggsave(plot = LBP_plot, filename  = here("figures","LPB_plot.jpg"),
+ #      dpi = 300,
+  #     width = 8,
+   #    height = 6)
 ```
 
 > No statistically significant difference in LBP between pre vs post among treatments. P-value is provided on the log scale (p = 0.446)
@@ -371,11 +371,11 @@ plate_long_fiber_summary_output <- plate_long_fiber_summary |>
 #write_excel(plate_long_fiber_summary_output, here("output","LBP_median_summary.xlsx"))
 
 
-ggsave(LBP_responder, filename = here("figures","separate_LBP_median.jpg"),
-       dpi = 300,
-       width = 8,
-       height = 6,
-       bg = 'white')
+#ggsave(LBP_responder, filename = here("figures","separate_LBP_median.jpg"),
+ #      dpi = 300,
+  #     width = 8,
+   #    height = 6,
+    #   bg = 'white')
 
 
 ```
@@ -439,10 +439,10 @@ ggplot(aes(x = timepoint, y = mean_conc_ng_ml, fill = timepoint)) +
   theme_minimal()
 boxplot_plot
 
-ggsave(boxplot_plot, filename = here("figures","fiber_first_lbp.jpg"),
-       dpi = 300,
-       width = 8,
-       height = 6)
+#ggsave(boxplot_plot, filename = here("figures","fiber_first_lbp.jpg"),
+ #      dpi = 300,
+  #     width = 8,
+   #    height = 6)
 
 ```
 
@@ -491,10 +491,10 @@ LCAT_plot <- ggplot(lcat_summary, aes(timepoint, mean_norm.LCAT.ratio))+
 
 LCAT_plot
 
-ggsave(plot = LCAT_plot, filename = here("figures","LCAT_plot.tiff"),
-                                dpi = 300,
-       width = 8,
-       height = 6)
+#ggsave(plot = LCAT_plot, filename = here("figures","LCAT_plot.tiff"),
+ #                               dpi = 300,
+  #     width = 8,
+   #    height = 6)
 ```
 
 > LCAT activity was not significantly different between pre vs post among treatment groups.
@@ -515,7 +515,7 @@ lcat_treatment_summary_wide <- lcat_treatment_summary |>
 list_of_datasets <- list("LBP by Treatment" = treatment_summary_wide, 
                          "LBP by Median" = plate_long_fiber_summary_output,
                          "LCAT Activity Index" = lcat_treatment_summary_wide)
-write.xlsx(list_of_datasets, file = here("output","LBP Analysis by Treatment and Median, LCAT Activity Index by Treatment.xlsx"))
+#write.xlsx(list_of_datasets, file = here("output","LBP Analysis by Treatment and Median, LCAT Activity Index by Treatment.xlsx"))
 ```
 
 ***
@@ -536,11 +536,11 @@ combined_plots <- plot_grid(LBP_plot, LCAT_plot, labels = c("A", "B"), ncol = 2)
 final_plot <- plot_grid(combined_plots, common_legend, ncol = 1, rel_heights = c(1, 0.25))
 
 print(final_plot)
-ggsave(plot = final_plot, filename = here("figures","LBP_LCAT_plot.jpg"),
-       dpi = 300,
-       height = 6,
-       width = 8,
-       bg = 'white')
+#ggsave(plot = final_plot, filename = here("figures","LBP_LCAT_plot.jpg"),
+ #      dpi = 300,
+  #     height = 6,
+   #    width = 8,
+    #   bg = 'white')
 ```
 
 
@@ -653,11 +653,11 @@ plate_long_fiber_summary_output <- plate_long_fiber_summary |>
 #write_excel(plate_long_fiber_summary_output, here("output","LCAT_median_summary.xlsx"))
 
 
-ggsave(LCAT_responder, filename = here("figures","separate_LCAT_median.jpg"),
-       dpi = 300,
-       width = 8,
-       height = 6,
-       bg = 'white')
+#ggsave(LCAT_responder, filename = here("figures","separate_LCAT_median.jpg"),
+ #      dpi = 300,
+  #     width = 8,
+   #    height = 6,
+    #   bg = 'white')
 
 
 ```
@@ -679,11 +679,11 @@ combined_plots <- plot_grid(LBP_responder, LCAT_responder, labels = c("A", "B"),
 final_plot <- plot_grid(combined_plots, common_legend, ncol = 1, rel_heights = c(1, 0.25))
 
 print(final_plot)
-ggsave(plot = final_plot, filename = here("figures","LBP_LCAT_by_MEDIAN_plot.jpg"),
-       dpi = 300,
-       height = 6,
-       width = 8,
-       bg = 'white')
+#ggsave(plot = final_plot, filename = here("figures","LBP_LCAT_by_MEDIAN_plot.jpg"),
+ #      dpi = 300,
+  #     height = 6,
+   #    width = 8,
+    #   bg = 'white')
 ```
 
 ## Log LBP Correlation with LCAT activity
@@ -949,13 +949,13 @@ figure_LBP_microbiome <- plot1 + theme(legend.position = "none") +
         plot_layout(ncol = 3, nrow = 2) +
     plot_annotation(tag_levels = 'A')
 
-ggsave(here("figures","LBP_microbiome_corr.jpg"), 
-       figure_LBP_microbiome, 
-       scale = 2, 
-       dpi = 300,
-       width = 10,
-       height = 6,
-       bg = "white")
+#ggsave(here("figures","LBP_microbiome_corr.jpg"), 
+ #      figure_LBP_microbiome, 
+  #     scale = 2, 
+   #    dpi = 300,
+    #   width = 10,
+     #  height = 6,
+      # bg = "white")
 ```
 
 ***
@@ -1040,9 +1040,9 @@ change_lbp_bif_plot <- ggplot(df_bif_change, aes(x = Change_bif, y = Change_lbp,
             label = paste0(c("T = ", "P = "), signif(c(cor_matrix$correlation[cor_matrix$treatment == "Prebiotic"], cor_matrix$p_value[cor_matrix$treatment == "Prebiotic"]), 3))
         ) +
     labs(y = "LBP change", x = "Bifidobacterium change")
-ggsave(plot = change_lbp_bif_plot,
-       filename = here("figures","change_lbp_bif_kendall.jpg"),
-       dpi = 300)
+#ggsave(plot = change_lbp_bif_plot,
+ #      filename = here("figures","change_lbp_bif_kendall.jpg"),
+  #     dpi = 300)
 ```
 
 
@@ -1196,11 +1196,11 @@ figure_LCAT_cor <- plot1 + theme(legend.position = "none") +
     plot_annotation(tag_levels = 'A')
                     
 # Save figure                    
-ggsave(figure_LCAT_cor, filename = here("figures","LCAT_microbiome_corr.tiff"),
-  scale = 1.5, 
-  dpi = 300,
-  width = 15, height = 10,
-  bg = "white")
+#ggsave(figure_LCAT_cor, filename = here("figures","LCAT_microbiome_corr.tiff"),
+ # scale = 1.5, 
+  #dpi = 300,
+  #width = 15, height = 10,
+  #bg = "white")
 
 
 ```
@@ -1447,9 +1447,9 @@ change_lbp_ipa_plot <- ggplot(df_ipa_change, aes(x = Change_ipa, y = Change_lbp,
             label = paste0(c("T = ", "P = "), signif(c(cor_matrix_ipa$correlation[cor_matrix_ipa$treatment == "Prebiotic"], cor_matrix_ipa$p_value[cor_matrix_ipa$treatment == "Prebiotic"]), 3))
         ) +
     labs(y = "LBP Index change", x = "3-Indolepropionic acid change")
-ggsave(plot = change_lbp_ipa_plot,
-       filename = here("figures","change_lbp_ipa_kendall.jpg"),
-       dpi = 300)
+#ggsave(plot = change_lbp_ipa_plot,
+ #      filename = here("figures","change_lbp_ipa_kendall.jpg"),
+  #     dpi = 300)
 ```
 
 ***
@@ -1583,12 +1583,12 @@ top30_lcat_metabolite_plot <- ggplot(top_results_df, aes(x = reorder(PLOT_NAME, 
     guides(fill = guide_legend(nrow = 2))
 
 print(top30_lcat_metabolite_plot)
-ggsave(top30_lcat_metabolite_plot, filename = here("figures","LCAT_metabolite_corr.tiff"),
-       dpi= 300,
-       height = 8,
-       width = 10,
-       scale = 1.8,
-       bg = "white")
+#ggsave(top30_lcat_metabolite_plot, filename = here("figures","LCAT_metabolite_corr.tiff"),
+ #      dpi= 300,
+  #     height = 8,
+   #    width = 10,
+    #   scale = 1.8,
+     #  bg = "white")
 ```
 
 > The top 30 absolute correlation (rrmcorr) is displayed in this bar plot.
@@ -1596,7 +1596,7 @@ ggsave(top30_lcat_metabolite_plot, filename = here("figures","LCAT_metabolite_co
 
 ## Fiber Consumption Analysis
 ```{r}
-fiber_intake <- read_csv(file = here("LBP","raw","FINAL SPREADSHEET.csv")) |>
+fiber_intake <- read_csv(file = here("LBP","raw","FINAL SPREADSHEET(1).csv")) |>
     filter(if_any(everything(), ~ !is.na(.))) |>
     clean_names()
 
@@ -1643,7 +1643,7 @@ results_df <- tibble(
 datatable(results_df, colnames = c("Rmcorr","CI_lower","CI_upper","p_value","padj","sig")) |>
     formatRound(columns = c("Rmcorr","CI_lower","CI_upper","p_value","padj"), digits = 3)
 
-#write.csv(results_df,here("output","LBP_fiber_intake_corr.csv"))
+#write.csv(results_df,here("output","2024-02-02_LBP_fiber_intake_corr.csv"))
 
 ```
 
