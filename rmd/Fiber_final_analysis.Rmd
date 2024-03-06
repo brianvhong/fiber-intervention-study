@@ -1648,6 +1648,80 @@ datatable(results_df, colnames = c("Rmcorr","CI_lower","CI_upper","p_value","pad
 ```
 
 
+
+## LBP Fiber consumption by median
+```{r}
+
+fiber_intake <- read_csv(file = here("LBP","raw","FINAL SPREADSHEET(1).csv")) |>
+    filter(if_any(everything(), ~ !is.na(.))) |>
+    clean_names() |>
+    mutate(sample = as.character(sample)) |>
+    mutate(treatment = ifelse(treatment=="A", "Prebiotic", "Placebo"),
+           treatment = factor(treatment, levels = c("Placebo","Prebiotic")),
+           timepoint = factor(timepoint, levels = c("pre", "post")))
+
+# Calculate mean conc_ng_ml for each subject, timepoint, and treatment
+plate_responder <- plate_combined  |>
+    clean_names() |>
+  group_by(subject, treatment, timepoint) %>%
+  summarise(mean_conc_ng_ml = mean(conc_ng_ml), .groups = "drop") |>
+    left_join(fiber_intake)
+
+# Calculate change in LBP for each subject and classify as responder or non-responder
+plate_responder_fiber <- plate_responder %>%
+    group_by(subject, treatment) |>
+    summarize(change_in_LBP = mean_conc_ng_ml[timepoint == "post"] - mean_conc_ng_ml[timepoint == "pre"],
+         change_in_fiber = total_g_day[timepoint == "post"] - total_g_day[timepoint == "pre"]) |>
+    group_by(treatment) |>
+    mutate(fiber = ifelse(change_in_fiber < median(change_in_fiber, na.rm = TRUE), "Below", "Above"),
+           subject = as.factor(subject))
+
+
+# Change in Fiber and Change in LBP
+plate_responder_fiber
+
+
+
+# Create the plot
+p <- ggplot(plate_responder_fiber, aes(x = treatment, y = change_in_LBP, fill = treatment)) +
+  geom_boxplot() +
+  facet_grid(.~ fiber) +
+  labs(x = "Timepoint", y = "Change in LBP (ng/mL)", fill = "Group") +
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+      geom_signif(data = plate_responder_fiber, 
+                  aes(x = treatment, y = change_in_LBP),
+              comparisons = list(c("Placebo", "Prebiotic")), 
+              test = "t.test", 
+              test.args = list(paired = TRUE),
+              map_signif_level = TRUE)
+
+ggsave(p, filename = here("figures","change_in_LBP_fiber_consumption_median.jpg"),
+       dpi= 300,
+       height = 6,
+       width = 8)
+
+
+
+# Convert change_in_fiber and change_in_LBP to numeric if they are factors
+plate_responder_fiber$change_in_fiber <- as.numeric(as.character(plate_responder_fiber$change_in_fiber))
+plate_responder_fiber$change_in_LBP <- as.numeric(as.character(plate_responder_fiber$change_in_LBP))
+
+# Assuming your data frame is named plate_responder_fiber
+p <- ggplot(plate_responder_fiber, aes(x = change_in_fiber, y = change_in_LBP, color = treatment)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, aes(group = treatment)) +  # Adds linear regression line
+  facet_grid(.~ fiber) +
+  stat_cor(label.x = "right", label.y = "top", label.sep = ", ", 
+           aes(group = treatment), method = "pearson")
+
+p
+
+
+
+```
+
+
 ## Combined Metabolite Correlation with LBP and LCAT
 ```{r, fig.width=20, fig.height=8}
 
