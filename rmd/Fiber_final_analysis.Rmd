@@ -37,7 +37,7 @@ All analyses were performed using R version 4.2.2. A linear mixed model was impl
 
 ***
 
-## Packages
+## Packages RUN FIRST
 ```{r}
 if(!any(rownames(installed.packages()) == "pacman")) # Autodownload or load package
         install.packages("pacman")
@@ -78,7 +78,7 @@ pacman::p_load(here,
 ```
 
 
-## Data Cleaning
+## Data Cleaning RUN SECOND
 ```{r message = F}
 lcat <- readRDS(here("LCAT","data","LCAT_summary_filter_223B.rds")) 
 standard <- read_excel(here("LBP","standard","standard_lbp.xlsx"))
@@ -142,7 +142,7 @@ plate_2 <- plate_2 |>
 ```
 
 
-## LBP Standard: Four Parameter Logistic Regression
+## LBP Standard: Four Parameter Logistic Regression RUN THIRD
 ```{r message = F}
 
 plate_1_standard <- plate_1 |>
@@ -168,7 +168,7 @@ plot(model2,
 
 > For most ELISA, often linear regression does not work. An appropriate curve is usually a four parameter logistic regression.
 
-## Estimate Concentration
+## Estimate Concentration RUN 4th
 
 ```{r message = F}
 
@@ -712,7 +712,7 @@ cor
 
 ## Log LBP Repeated Correlation with subject characteristics
 ```{r warning = F, message = F}
-LBP <- log(plate_summary$mean_conc_ng_ml)
+LBP <- log(plate_summary$mean_conc_ng_ml) ## Object for Correlation
 # Extract the columns of interest
 data_subset <- subject_characteristic[, 9:22]
 # Assuming 'subject' is the name of your grouping variable
@@ -850,8 +850,11 @@ results_df_lcat <- results_df_lcat |>
 
 ***
 
+## YANSHAN COME TO HERE AFTER PLATE_SUMMARY  ###
+
 ## LBP Correlation with Microbiome
 ```{r}
+LBP <- log(plate_summary$mean_conc_ng_ml) # Convert LBP to log
 taxa <- readRDS(here("microbiome","data","taxa.rds"))
 taxa.id <- paste0(taxa$pdata$subject, tolower(taxa$pdata$trt), taxa$pdata$timepoint)
 ## Change "fiber" name to Prebiotic and change "placebo" to "Placebo"
@@ -872,8 +875,71 @@ var0 <- apply(genus, 1, function(x)var(x)==0) # remove genus with variance == 0
 sum(var0)
 genus <- genus[!var0, ]
 
-genus.cpm <- apply(genus, 2, function(x){x/sum(x)*1000000}) # total count = 1M
+genus.cpm <- apply(genus, 2, function(x){x/sum(x)*1000000}) # total count = 1M # This is the bacteria count, find which bacteria is gram negative and add count up
+
+
 ```
+
+
+## YANSHAN START CORRELATION HERE WITH COMBINED GRAM NEGATIVE
+```{r}
+# Change to DF
+genus.cpm.df <- as.data.frame(genus.cpm)
+
+# Find which bacteria is gram negative from genus.cpm (look into taxa HTset object)
+
+# Filter Bacteria that is gram negative
+
+# Add columns up, call the bacteria "Gram Negative Bacteria
+
+genus.cpm.gram.negative <- genus.cpm 
+    
+    
+#Run code below
+rmcorrelation <- function(microbe, y, data){
+    df <- data.frame(
+        subject = factor(pdata$subject),
+        microbe = log(data[microbe,]+1), # log-transformation
+        LBP = y
+    )
+    cor <- rmcorr(subject, measure1 = microbe, measure2 = LBP, dataset = df)
+}
+
+# repeated measure correlation on all genus
+rmcor.res <- lapply(rownames(genus.cpm.gram.negative), function(x)
+    rmcorrelation(x, LBP, data = genus.cpm.gram.negative)) |>
+    `names<-`(rownames(genus.cpm))
+
+# extract p-values
+pvals <- sapply(rmcor.res, function(x)x$p) |>
+    `names<-`(rownames(genus.cpm))
+# padj
+padjs <- p.adjust(pvals, method = "BH")
+
+rmcor.plot <- function(x, xlab, ylab){
+    df <- x$model$model
+    p <- ggplot(df, aes(x = Measure1, y = Measure2)) +
+        geom_point(aes(colour = factor(Participant), group = factor(Participant))) +
+        geom_line(aes(y = x$model$fitted.values, group = factor(Participant), color = factor(Participant)), linetype = 1) +
+        theme_bw() +
+        labs(x = paste(xlab, "log(counts)"), y = ylab)
+    xmax <- max(df$Measure1)
+    ymax <- max(df$Measure2)
+    p <- p +
+        annotate(
+            "text", x = xmax*0.93, y = c(ymax, ymax*1.2), 
+            label = paste0(c("r = ", "pval = "), signif(c(x$r, x$p), 3))
+        )
+    return(p)
+}
+plots <- lapply(rownames(genus.cpm.gram.negative)[which(pvals<0.05)], function(x){
+    rmcor.plot(rmcor.res[[x]], xlab = x, ylab = "Log(LBP)")
+}) %>%
+    `names<-`(rownames(genus.cpm)[which(pvals<0.05)]) ## Set pvalue threshhold for figures
+plots
+```
+
+
 
 ```{r}
 rmcorrelation <- function(microbe, y, data){
