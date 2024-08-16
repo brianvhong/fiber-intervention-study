@@ -39,9 +39,17 @@ All analyses were performed using R version 4.2.2. A linear mixed model was impl
 
 ## Packages
 ```{r}
-if(!any(rownames(installed.packages()) == "pacman"))
+if(!any(rownames(installed.packages()) == "pacman")) # Autodownload or load package
         install.packages("pacman")
-if(!any(rownames(installed.packages()) == 'HTSet'))
+if(!any(rownames(installed.packages()) == 'devtools')) ## To use packages from GitHub
+        install.packages("devtools")
+
+## Packages for Trevor's HTSet Packages
+if(!any(rownames(installed.packages()) == 'fastmap')) 
+        install.packages("fastmap")
+if(!any(rownames(installed.packages()) == 'insight')) 
+        install.packages("insight")
+if(!any(rownames(installed.packages()) == 'HTSet')) ## Trevor's -omic package
         devtools::install_github("zhuchcn/HTSet")
 
 
