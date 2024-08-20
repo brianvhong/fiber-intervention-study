@@ -886,15 +886,65 @@ genus.cpm <- apply(genus, 2, function(x){x/sum(x)*1000000}) # total count = 1M #
 # Change to DF
 genus.cpm.df <- as.data.frame(genus.cpm)
 
-# Find which bacteria is gram negative from genus.cpm (look into taxa HTset object)
+# find which bacteria is gram negative using ePSORTdb Version 4.0 database
+Gram.db <- read.table(here("microbiome","data","Experimental-PSORTdb-v4.00.tsv"),sep = "\t",header = TRUE)
+
+class <- unique(Gram.db$Class)
+# Initialize Gram.stain before the loop
+Gram.stain <- data.frame(Class = character(), Gram_pos = numeric(), Gram_neg = numeric(), stringsAsFactors = FALSE)
+
+for (i in class) {
+  gram_table <- table(Gram.db$GramStain[Gram.db$Class == i])
+  # Safely extract counts, defaulting to 0 if the label does not exist
+  Gram_pos <- ifelse('Gram positive' %in% names(gram_table), gram_table['Gram positive'], 0)
+  Gram_neg <- ifelse('Gram negative' %in% names(gram_table), gram_table['Gram negative'], 0)
+  loop.data <- data.frame(Class = as.character(i), Gram_pos = Gram_pos, Gram_neg = Gram_neg, stringsAsFactors = FALSE)
+  Gram.stain <- rbind(Gram.stain, loop.data)
+}
+
+Gram.stain <- Gram.stain %>% 
+                mutate(GramStainFinal = ifelse(Gram_pos > Gram_neg, 'Gram_positive','Gram_negative')) %>% 
+                mutate(GramStainFinal = ifelse(Gram_pos == Gram_neg, 'NA', GramStainFinal)) %>% 
+                filter(!Class == '',!Class =="Mollicutes")
+
+find_class <- function(x){
+    genus = x
+    Class = taxa@fdata$class[taxa@fdata$genus== x]
+    return(Class)
+}
+
+find_gram_stain <- function(x){
+    GramStain = Gram.stain$GramStainFinal[Gram.stain$Class == x]
+    ifelse(length(GramStain)==0, return(NA),return(GramStain))
+}
 
 # Filter Bacteria that is gram negative
+genus.cpm.df <- genus.cpm.df %>%
+    mutate(Class = sapply(rownames(.),find_class)) %>% 
+    mutate(Class = sub('.*c\\("([^"]+)".*', '\\1', Class)) %>% 
+    mutate(GramStain = sapply(Class,find_gram_stain)) 
+unique(genus.cpm.df[is.na(genus.cpm.df$GramStain),]$Class)
+
+# correct the NAs
+genus.cpm.df$GramStain[genus.cpm.df$Class=='Verrucomicrobiae']<- "Gram_negative"
+genus.cpm.df$GramStain[genus.cpm.df$Class=='Synergistia']<- "Gram_negative"
+genus.cpm.df$GramStain[genus.cpm.df$Class=='Coriobacteriia'] <- "Gram_positive"
+genus.cpm.df$GramStain[genus.cpm.df$Class=='Erysipelotrichia']<- "Gram_positive"
+
+
+genus.cpm.df <- genus.cpm.df %>% 
+    filter(GramStain == "Gram_negative") %>% 
+    dplyr::select(-Class,-GramStain)
 
 # Add columns up, call the bacteria "Gram Negative Bacteria
 
-genus.cpm.gram.negative <- genus.cpm 
-    
-    
+row.sum <- apply(genus.cpm.df,2, sum)
+
+genus.cpm.gram.negative <- rbind(genus.cpm.df,row.sum) 
+genus.cpm.gram.negative <- genus.cpm.gram.negative[nrow(genus.cpm.gram.negative),]
+rownames(genus.cpm.gram.negative) <- "Sum of gram-negative bacteria"
+genus.cpm.gram.negative <- as.matrix(genus.cpm.gram.negative)
+
 #Run code below
 rmcorrelation <- function(microbe, y, data){
     df <- data.frame(
@@ -908,11 +958,11 @@ rmcorrelation <- function(microbe, y, data){
 # repeated measure correlation on all genus
 rmcor.res <- lapply(rownames(genus.cpm.gram.negative), function(x)
     rmcorrelation(x, LBP, data = genus.cpm.gram.negative)) |>
-    `names<-`(rownames(genus.cpm))
+    `names<-`(rownames(genus.cpm.gram.negative))
 
 # extract p-values
 pvals <- sapply(rmcor.res, function(x)x$p) |>
-    `names<-`(rownames(genus.cpm))
+    `names<-`(rownames(genus.cpm.gram.negative))
 # padj
 padjs <- p.adjust(pvals, method = "BH")
 
@@ -932,10 +982,10 @@ rmcor.plot <- function(x, xlab, ylab){
         )
     return(p)
 }
-plots <- lapply(rownames(genus.cpm.gram.negative)[which(pvals<0.05)], function(x){
+plots <- lapply(rownames(genus.cpm.gram.negative)[which(pvals<1)], function(x){
     rmcor.plot(rmcor.res[[x]], xlab = x, ylab = "Log(LBP)")
 }) %>%
-    `names<-`(rownames(genus.cpm)[which(pvals<0.05)]) ## Set pvalue threshhold for figures
+    `names<-`(rownames(genus.cpm.gram.negative)[which(pvals<1)]) ## Set pvalue threshhold for figures
 plots
 ```
 
