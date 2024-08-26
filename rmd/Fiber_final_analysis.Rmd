@@ -886,6 +886,15 @@ genus.cpm <- apply(genus, 2, function(x){x/sum(x)*1000000}) # total count = 1M #
 # Change to DF
 genus.cpm.df <- as.data.frame(genus.cpm)
 
+## only include responders
+# 
+LBP_responders <- plate_long_fiber$subject[plate_long_fiber$response == "responder"] %>% as.character()
+
+LBP_responders_colnames <- colnames(genus.cpm.df)[grep(paste0("^(", paste(LBP_responders, collapse = "|"), ")"),substr(colnames(genus.cpm.df), 1, 3))]
+
+genus.cpm.df <- genus.cpm.df[LBP_responders_colnames]
+
+
 # find which bacteria is gram negative using ePSORTdb Version 4.0 database
 Gram.db <- read.table(here("microbiome","data","Experimental-PSORTdb-v4.00.tsv"),sep = "\t",header = TRUE)
 
@@ -943,12 +952,13 @@ row.sum <- apply(genus.cpm.df,2, sum)
 genus.cpm.gram.negative <- rbind(genus.cpm.df,row.sum) 
 genus.cpm.gram.negative <- genus.cpm.gram.negative[nrow(genus.cpm.gram.negative),]
 rownames(genus.cpm.gram.negative) <- "Sum of gram-negative bacteria"
+
 genus.cpm.gram.negative <- as.matrix(genus.cpm.gram.negative)
 
 #Run code below
 rmcorrelation <- function(microbe, y, data){
     df <- data.frame(
-        subject = factor(pdata$subject),
+        subject = factor(substr(colnames(genus.cpm.gram.negative),1,3)),
         microbe = log(data[microbe,]+1), # log-transformation
         LBP = y
     )
@@ -988,7 +998,88 @@ plots <- lapply(rownames(genus.cpm.gram.negative)[which(pvals<1)], function(x){
     `names<-`(rownames(genus.cpm.gram.negative)[which(pvals<1)]) ## Set pvalue threshhold for figures
 plots
 ```
+## Yanshan - LBP correlation with LPS biosynthesis genes
+```{r, LBP correlation with LPS biosynthesis genes}
+## LPS genes are derived from KEGG database ko00540 Lipopolysaccharide biosynthesis
+LPS_genes <- c("K00677", "K00713" ,"K00748" ,"K00912" ,"K00979",
+"K01627" ,"K02517" ,"K02527" ,"K02535" ,"K02536",
+"K02560" ,"K02840" ,"K02841" ,"K02843" ,"K02844",
+"K02847" ,"K02848", "K02849" ,"K02850", "K03269",
+"K03270" ,"K03271" ,"K03272" ,"K03273", "K03274",
+"K03275" ,"K03276" ,"K03277", "K03278", "K03279",
+"K03280", "K03760" ,"K06041" ,"K07031", "K07264",
+"K09778" ,"K09949" ,"K09953" ,"K11211", "K12973",
+"K12974" ,"K12975", "K12976" ,"K12977", "K12979",
+"K12981" ,"K12983" ,"K12985", "K12986", "K15669",
+"K16363", "K19353", "K19354" ,"K19803", "K21344",
+"K21345", "K23067", "K23082", "K23083", "K23159",
+"K23160" ,"K24623")
 
+#LPS_coreenrich_genes <- strsplit("K03269/K00748/K01627/K00979/K19353/K12973",split = "/")[[1]]
+LBP_responders <- plate_long_fiber$subject[plate_long_fiber$response == "responder"] %>% as.character()
+
+functions <- readRDS(here("microbiome","data","functions.rds"))
+
+LPS_genes_in_responders <- functions$ko@edata %>% 
+    as.data.frame() %>% 
+    filter(rownames(.) %in% LPS_genes) %>% 
+    `colnames<-`(taxa.id)
+
+LPS_genes_in_responders <- LPS_genes_in_responders[,overlapped.id] 
+LPS_responder_colnames <- colnames(LPS_genes_in_responders)[grep(paste0("^(", paste(LBP_responders, collapse = "|"), ")"),substr(colnames(LPS_genes_in_responders), 1, 3))]
+LPS_genes_in_responders <- LPS_genes_in_responders[,LPS_responder_colnames] 
+
+row.sum.1 <- apply(LPS_genes_in_responders,2, sum)
+
+genus.cpm.gram.negative.1 <- rbind(LPS_genes_in_responders,row.sum.1) 
+genus.cpm.gram.negative.1 <- genus.cpm.gram.negative.1[nrow(genus.cpm.gram.negative.1),]
+rownames(genus.cpm.gram.negative.1) <- "Sum of lipopolysaccharide biosynthesis related genes"
+
+genus.cpm.gram.negative.1 <- as.matrix(genus.cpm.gram.negative.1)
+
+#Run code below
+rmcorrelation <- function(gene, y, data){
+    df <- data.frame(
+        subject = factor(substr(colnames(LPS_genes_in_responders),1,3)),
+        gene = log(data[gene,]+1), # log-transformation
+        LBP = y
+    )
+    cor <- rmcorr(subject, measure1 = gene, measure2 = LBP, dataset = df)
+}
+
+# repeated measure correlation on all genus
+rmcor.res <- lapply(rownames(genus.cpm.gram.negative.1), function(x)
+    rmcorrelation(x, LBP, data = genus.cpm.gram.negative.1)) |>
+    `names<-`(rownames(genus.cpm.gram.negative.1))
+
+# extract p-values
+pvals <- sapply(rmcor.res, function(x)x$p) |>
+    `names<-`(rownames(genus.cpm.gram.negative.1))
+# padj
+padjs <- p.adjust(pvals, method = "BH")
+
+rmcor.plot <- function(x, xlab, ylab){
+    df <- x$model$model
+    p <- ggplot(df, aes(x = Measure1, y = Measure2)) +
+        geom_point(aes(colour = factor(Participant), group = factor(Participant))) +
+        geom_line(aes(y = x$model$fitted.values, group = factor(Participant), color = factor(Participant)), linetype = 1) +
+        theme_bw() +
+        labs(x = paste(xlab, "log(counts)"), y = ylab)
+    xmax <- max(df$Measure1)
+    ymax <- max(df$Measure2)
+    p <- p +
+        annotate(
+            "text", x = xmax*0.93, y = c(ymax, ymax*1.2), 
+            label = paste0(c("r = ", "pval = "), signif(c(x$r, x$p), 3))
+        )
+    return(p)
+}
+plots <- lapply(rownames(genus.cpm.gram.negative.1)[which(pvals<1)], function(x){
+    rmcor.plot(rmcor.res[[x]], xlab = x, ylab = "Log(LBP)")
+}) %>%
+    `names<-`(rownames(genus.cpm.gram.negative.1)[which(pvals<1)]) ## Set pvalue threshhold for figures
+plots
+```
 
 
 ```{r}
