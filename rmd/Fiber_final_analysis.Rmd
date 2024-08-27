@@ -1080,6 +1080,97 @@ plots <- lapply(rownames(genus.cpm.gram.negative.1)[which(pvals<1)], function(x)
     `names<-`(rownames(genus.cpm.gram.negative.1)[which(pvals<1)]) ## Set pvalue threshhold for figures
 plots
 ```
+## generate LPS producing related genes' counts boxplot (only in the fiber group)
+```{r}
+LPS_genes_separateby_responders <- functions$ko@edata %>% 
+    as.data.frame() %>% 
+    filter(rownames(.) %in% LPS_genes) %>% 
+    `colnames<-`(taxa.id)
+LPS_genes_separateby_responders <- LPS_genes_separateby_responders[,overlapped.id]
+row.sum.2 <- apply(LPS_genes_separateby_responders,2, sum)
+
+LPS_genes_separateby_responders <- rbind(LPS_genes_separateby_responders,row.sum.2) 
+LPS_genes_separateby_responders <- LPS_genes_separateby_responders[nrow(LPS_genes_separateby_responders),]
+rownames(LPS_genes_separateby_responders) <- "Sum of lipopolysaccharide biosynthesis related genes"
+
+LPS_genes_separateby_responders <- LPS_genes_separateby_responders %>% 
+    t() %>% 
+    as.data.frame() %>% 
+    rownames_to_column("Subject_trt_tmp") %>% 
+    separate(Subject_trt_tmp, 
+           into = c("subject", "treatment", "timepoint"), 
+           sep = "(?<=\\d)(?=\\D)|(?<=\\D)(?=pre|post)", 
+           remove = FALSE) %>% 
+    mutate(response = ifelse(subject %in% LBP_responders,"responder","non-responder")) %>% 
+    mutate(group = ifelse(response == "responder","above median","below median")) %>% 
+    dplyr::select(subject,treatment,timepoint,response,group,`Sum of lipopolysaccharide biosynthesis related genes`) %>% 
+    mutate(group = factor(group,levels = c("above median","below median"))) %>% 
+    mutate(timepoint = factor(timepoint, levels = c("pre","post"))) %>% 
+    filter(treatment == "Prebiotic")
+
+p <- ggplot(LPS_genes_separateby_responders, aes(timepoint, `Sum of lipopolysaccharide biosynthesis related genes`))+
+    geom_boxplot()+
+    geom_point(aes(color = subject))+
+    geom_line(aes(color = subject, group = subject)) +
+    facet_grid(~group) +
+    theme_bw() +
+    labs(y = "Counts", x = "Timepoint")
+
+p <-  p+ geom_signif(data = subset(LPS_genes_separateby_responders, group == "above median"), 
+                aes(x = timepoint, y = `Sum of lipopolysaccharide biosynthesis related genes`),
+                comparisons = list(c("pre", "post")),
+                test = "t.test",
+                test.args = list(paired = TRUE),
+                map_signif_level = TRUE) +
+    geom_signif(data = subset(LPS_genes_separateby_responders, group == "below median"),
+                aes(x = timepoint, y = `Sum of lipopolysaccharide biosynthesis related genes`),
+                comparisons = list(c("pre", "post")),
+                test = "t.test",
+                test.args = list(paired = TRUE),
+                map_signif_level = TRUE)
+
+```
+
+## generate LPS producing related genes' counts boxplot (in both fiber and placebo groups)
+```{r}
+LPS_genes_all_groups <- functions$ko@edata %>% 
+    as.data.frame() %>% 
+    filter(rownames(.) %in% LPS_genes) %>% 
+    `colnames<-`(taxa.id)
+LPS_genes_all_groups <- LPS_genes_all_groups[,overlapped.id]
+row.sum.3 <- apply(LPS_genes_all_groups,2, sum)
+
+LPS_genes_all_groups <- rbind(LPS_genes_all_groups,row.sum.3) 
+LPS_genes_all_groups <- LPS_genes_all_groups[nrow(LPS_genes_all_groups),]
+rownames(LPS_genes_all_groups) <- "Sum of lipopolysaccharide biosynthesis related genes"
+
+LPS_genes_all_groups <- LPS_genes_all_groups %>% 
+    t() %>% 
+    as.data.frame() %>% 
+    rownames_to_column("Subject_trt_tmp") %>% 
+    separate(Subject_trt_tmp, 
+           into = c("subject", "intervention", "timepoint"), 
+           sep = "(?<=\\d)(?=\\D)|(?<=\\D)(?=pre|post)", 
+           remove = FALSE) %>% 
+    dplyr::select(subject,intervention,timepoint,`Sum of lipopolysaccharide biosynthesis related genes`) %>% 
+    mutate(timepoint = factor(timepoint, levels = c("pre","post"))) 
+
+mod <- glmer.nb(`Sum of lipopolysaccharide biosynthesis related genes`~intervention+timepoint+intervention*timepoint+(1|subject), data = LPS_genes_all_groups)
+
+summary(mod)
+anova(mod)
+
+p <- ggplot(LPS_genes_all_groups, aes(timepoint, `Sum of lipopolysaccharide biosynthesis related genes`))+
+    geom_boxplot()+
+    geom_point(aes(color = subject))+
+    geom_line(aes(color = subject, group = subject)) +
+    facet_grid(~intervention) +
+    theme_bw() +
+    labs(y = "Counts", x = "Timepoint",title = bquote(italic(P)~"="~"0.43"))
+    
+
+
+```
 
 
 ```{r}
