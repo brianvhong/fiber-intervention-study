@@ -1,0 +1,252 @@
+---
+title: "reviewer_questions"
+author: "Yanshan Jin"
+date: "2024-09-04"
+output: html_document
+---
+
+## Packages set up
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = FALSE)
+
+if(!any(rownames(installed.packages()) == "pacman")) # Autodownload or load package
+        install.packages("pacman")
+if(!any(rownames(installed.packages()) == 'devtools')) ## To use packages from GitHub
+        install.packages("devtools")
+
+## Packages for Trevor's HTSet Packages
+if(!any(rownames(installed.packages()) == 'fastmap')) 
+        install.packages("fastmap")
+if(!any(rownames(installed.packages()) == 'insight')) 
+        install.packages("insight")
+if(!any(rownames(installed.packages()) == 'HTSet')) ## Trevor's -omic package
+        devtools::install_github("zhuchcn/HTSet")
+
+
+pacman::p_load(here,
+               tidyverse,
+               rstatix,
+               DT,
+               ggpubr,
+               readxl,
+               reshape2,
+                forcats,
+               drc,
+               emmeans,
+               lmerTest,
+               rmcorr,
+               HTSet,
+               cowplot,
+               patchwork,
+               RColorBrewer,
+               ggsignif,
+               viridis,
+               ggsci,
+               scales,
+               openxlsx,
+               janito,
+               ggpubr)
+```
+
+
+## baseline LPS producing genes' abundance among below- and above- median subjects.
+```{r LPS genes,warning=FALSE}
+## read the gene abundance matrix
+functions <- readRDS(here("microbiome","data","functions.rds"))
+taxa <- readRDS(here("microbiome","data","taxa.rds"))
+taxa.id <- paste0(taxa$pdata$subject, tolower(taxa$pdata$trt), taxa$pdata$timepoint)
+## Change "fiber" name to Prebiotic and change "placebo" to "Placebo"
+taxa.id <- gsub("fiber", "Prebiotic", taxa.id)
+taxa.id <- gsub("placebo", "Placebo", taxa.id)
+
+LPS_genes_separateby_responders <- read.csv(here("LBP","output","LPS_genes_separateby_responders.csv")) %>% 
+    mutate(subject = as.character(subject))
+
+LBP.id <- c(paste0(LPS_genes_separateby_responders$subject,LPS_genes_separateby_responders$treatment,LPS_genes_separateby_responders$timepoint))
+
+
+## identify the LPS prodicng genes
+## LPS genes are derived from KEGG database ko00540 Lipopolysaccharide biosynthesis
+LPS_genes <- c("K00677", "K00713" ,"K00748" ,"K00912" ,"K00979",
+"K01627" ,"K02517" ,"K02527" ,"K02535" ,"K02536",
+"K02560" ,"K02840" ,"K02841" ,"K02843" ,"K02844",
+"K02847" ,"K02848", "K02849" ,"K02850", "K03269",
+"K03270" ,"K03271" ,"K03272" ,"K03273", "K03274",
+"K03275" ,"K03276" ,"K03277", "K03278", "K03279",
+"K03280", "K03760" ,"K06041" ,"K07031", "K07264",
+"K09778" ,"K09949" ,"K09953" ,"K11211", "K12973",
+"K12974" ,"K12975", "K12976" ,"K12977", "K12979",
+"K12981" ,"K12983" ,"K12985", "K12986", "K15669",
+"K16363", "K19353", "K19354" ,"K19803", "K21344",
+"K21345", "K23067", "K23082", "K23083", "K23159",
+"K23160" ,"K24623")
+
+LPS_genes_in_responders <- functions$ko@edata %>% 
+    as.data.frame() %>% 
+    filter(rownames(.) %in% LPS_genes) %>% 
+    `colnames<-`(taxa.id) %>% 
+    .[, LBP.id]
+
+row.sum.1 <- apply(LPS_genes_in_responders,2, sum)
+
+LPS_genes_sum <- rbind(LPS_genes_in_responders,row.sum.1) 
+LPS_genes_sum <- LPS_genes_sum[nrow(LPS_genes_sum),] %>% 
+    pivot_longer(cols = everything(),names_to = "subject_treatment_timepoint",
+                 values_to = "Sum") %>% 
+    separate(subject_treatment_timepoint,
+             into = c("subject","treatment_timepoint"),
+             sep = "(?<=\\d)(?=[A-Za-z])") %>% 
+    separate(treatment_timepoint,
+             into = c("treatment","timepoint"),
+             sep = "(?<=\\D)(pre|post)$") %>% 
+    mutate(timepoint = rep(c("pre","post"),20)) %>% 
+    left_join(.,LPS_genes_separateby_responders[,c("subject","group")],by="subject") %>% 
+    mutate(group = factor(group,levels = c("above median","below median"))) %>% 
+    mutate(timepoint = factor(timepoint, levels = c("pre","post"))) %>% 
+    distinct()
+
+## plot the LPS genes change among below- and above- median people
+p1 <- ggplot(LPS_genes_sum, aes(timepoint, Sum))+
+    geom_boxplot()+
+    geom_point(aes(color = subject))+
+    geom_line(aes(color = subject, group = subject)) +
+    facet_grid(~group) +
+    theme_bw() +
+    labs(y = "Counts", x = "Timepoint")+
+    theme(legend.position = "none")
+
+p1 <-  p1+ geom_signif(data = subset(LPS_genes_sum, group == "above median"), 
+                aes(x = timepoint, y = Sum),
+                comparisons = list(c("pre", "post")),
+                test = "t.test",
+                test.args = list(paired = TRUE),
+                map_signif_level = TRUE) +
+    geom_signif(data = subset(LPS_genes_sum, group == "below median"),
+                aes(x = timepoint, y = Sum),
+                comparisons = list(c("pre", "post")),
+                test = "t.test",
+                test.args = list(paired = TRUE),
+                map_signif_level = TRUE)
+
+p1 <- p1+ labs(title = "Sum of counts for LPS producing genes")
+p1
+
+LPS_genes_pre <- LPS_genes_sum %>% filter(timepoint == "pre")
+## plot baseline sum of the counts of LPS producing genes among below- and above- median people
+p2 <- ggplot(LPS_genes_pre, aes(group, Sum))+
+    geom_boxplot()+
+    geom_point(aes(color = subject))+
+    theme_bw() +
+    labs(y = "Counts", x = "Group",title = "Baseline sum of counts for LPS producing genes")+
+    stat_compare_means(method = "t.test",label = "p.format",label.x = 1.5)+
+    theme(legend.position = "none")
+
+p2
+
+
+
+
+
+```
+
+## Baseline bifidobacteria abundance among below- and above- median subjects.
+```{r Bifidobacterium}
+## extract otu number of bifidobacterium
+
+otu_names <- rownames(taxa@fdata[taxa@fdata$genus == "Bifidobacterium",])
+bifido_edata <- taxa@edata %>% 
+    as.data.frame() %>% 
+    filter(rownames(.) %in% otu_names) %>% 
+    `colnames<-`(taxa.id) %>% 
+    .[,LBP.id]
+
+row.sum.2 <- apply(bifido_edata,2, sum)
+
+bifido_sum <- rbind(bifido_edata,row.sum.2) 
+bifido_sum <- bifido_sum[nrow(bifido_sum),] %>% 
+    pivot_longer(cols = everything(),names_to = "subject_treatment_timepoint",
+                 values_to = "Sum") %>% 
+    separate(subject_treatment_timepoint,
+             into = c("subject","treatment_timepoint"),
+             sep = "(?<=\\d)(?=[A-Za-z])") %>% 
+    separate(treatment_timepoint,
+             into = c("treatment","timepoint"),
+             sep = "(?<=\\D)(pre|post)$") %>% 
+    mutate(timepoint = rep(c("pre","post"),20)) %>% 
+    arrange(subject, timepoint) %>% 
+    left_join(.,LPS_genes_separateby_responders[,c("subject","group")],by="subject") %>% 
+    filter(timepoint == "pre") %>% 
+    distinct()
+
+## plot sum of the counts of LPS producing genes among below- and above- median people
+p3 <- ggplot(bifido_sum, aes(group, Sum))+
+    geom_boxplot()+
+    geom_point(aes(color = subject))+
+    theme_bw() +
+    labs(y = "Counts", x = "Group",title = bquote("Baseline sum of counts for "~italic("Bifidobacterium")))+
+    stat_compare_means(method = "t.test",label = "p.format",label.x = 1.5)+
+    theme(legend.position = "none")
+p3
+```
+
+## The increase of bifidobacteria among the below- and above- median subjects.
+```{r increase in Bifidobacterium}
+bifido_sum <- rbind(bifido_edata,row.sum.2) 
+bifido_increase <- bifido_sum[nrow(bifido_sum),] %>% 
+    pivot_longer(cols = everything(),names_to = "subject_treatment_timepoint",
+                 values_to = "Sum") %>% 
+    separate(subject_treatment_timepoint,
+             into = c("subject","treatment_timepoint"),
+             sep = "(?<=\\d)(?=[A-Za-z])") %>% 
+    separate(treatment_timepoint,
+             into = c("treatment","timepoint"),
+             sep = "(?<=\\D)(pre|post)$") %>% 
+    mutate(timepoint = rep(c("pre","post"),20)) %>% 
+    arrange(subject, timepoint) %>% 
+    left_join(.,LPS_genes_separateby_responders[,c("subject","group")],by="subject") %>% 
+    distinct()
+
+bifido_increase <- bifido_increase %>% 
+    pivot_wider(names_from = timepoint,values_from = Sum) %>% 
+    mutate(increase = post - pre) 
+
+p4 <- ggplot(bifido_increase, aes(group, increase))+
+    geom_boxplot()+
+    geom_point(aes(color = subject))+
+    theme_bw() +
+    labs(y = "Counts (Post - Pre)", x = "Group",title = bquote("Increase in the sum of "~italic("Bifidobacterium")~"counts"))+
+    stat_compare_means(method = "t.test",label = "p.format",label.x = 1.5)+
+    theme(legend.position = "none")
+p4
+```
+
+```{r combine plots}
+## get legend
+get_legend <- function(my_plot) {
+        # Create a ggplot build object
+        plot_gtable <- ggplot_gtable(ggplot_build(my_plot))
+        
+        # Extract the legend grob
+        guide_box <- which(sapply(plot_gtable$grobs, function(x) x$name) == "guide-box")
+        
+        # Check if the guide-box exists and extract the legend
+        if (length(guide_box) > 0) {
+                legend <- plot_gtable$grobs[[guide_box]]
+                return(legend)
+        } else {
+                warning("No legend found in the plot.")
+                return(NULL)
+        }
+}
+
+legend <- get_legend(p1+theme(legend.position = "right"))
+
+p5 <- cowplot::plot_grid(p1,p2,p3,p4, ncol = 2,labels = "AUTO",byrow = TRUE)
+
+
+p6 <- plot_grid(p5,legend, ncol = 2,labels = "",rel_widths =c(8,1))
+p6
+
+#ggsave(here("figures","reviewer_question.jpeg"),device = "jpeg",width = 12, height = 8,units = "in",dpi = 300)
+
+```

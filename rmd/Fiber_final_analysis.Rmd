@@ -82,7 +82,7 @@ pacman::p_load(here,
 ```{r message = F}
 lcat <- readRDS(here("LCAT","data","LCAT_summary_filter_223B.rds")) 
 standard <- read_excel(here("LBP","standard","standard_lbp.xlsx"))
-subject_characteristic <- read_csv(here("subject_characteristics","USANA Study Clinical Meta Data Sheet copy.csv")) |>
+subject_characteristic <- read.csv(here("subject_characteristics","USANA Study Clinical Meta Data Sheet copy.csv")) |>
     mutate(sample = as.character(sample)) |>
     na.omit()
 plate_1 <- read_excel(here("LBP","raw","fslbp1-40.xlsx"), 
@@ -294,13 +294,15 @@ plate_responder <- plate_responder %>%
 plate_responder_fiber <- plate_responder %>%
   filter(treatment == "Prebiotic")
 
+
+
 # Calculate median LBP for grouping
 median_LBP <- median(plate_responder_fiber$pre, na.rm = TRUE)
 
 # Classify as above or below median LBP
 plate_responder_fiber <- plate_responder_fiber %>%
   mutate(group = ifelse(pre < median_LBP, "below median", "above median"))
-
+write.csv(plate_responder_fiber,here("LBP","output","plate_responder_fiber.csv"))
 # Convert to long format for plotting
 plate_long_fiber <- plate_responder_fiber %>%
   pivot_longer(cols = c(pre, post), names_to = "timepoint", values_to = "conc_ng_ml") %>%
@@ -575,6 +577,7 @@ median_LBP <- median(plate_responder_fiber$pre, na.rm = TRUE)
 # Classify as above or below median LCAT Activity 
 plate_responder_fiber <- plate_responder_fiber %>%
   mutate(group = ifelse(pre < median_LBP, "below median", "above median"))
+
 
 # Convert to long format for plotting
 plate_long_fiber <- plate_responder_fiber %>%
@@ -855,6 +858,8 @@ results_df_lcat <- results_df_lcat |>
 ## LBP Correlation with Microbiome
 ```{r}
 LBP <- log(plate_summary$mean_conc_ng_ml) # Convert LBP to log
+
+
 taxa <- readRDS(here("microbiome","data","taxa.rds"))
 taxa.id <- paste0(taxa$pdata$subject, tolower(taxa$pdata$trt), taxa$pdata$timepoint)
 ## Change "fiber" name to Prebiotic and change "placebo" to "Placebo"
@@ -1080,7 +1085,7 @@ plots <- lapply(rownames(genus.cpm.gram.negative.1)[which(pvals<1)], function(x)
     `names<-`(rownames(genus.cpm.gram.negative.1)[which(pvals<1)]) ## Set pvalue threshhold for figures
 plots
 ```
-## generate LPS producing related genes' counts boxplot (only in the fiber group)
+## generate LPS producing related genes' counts boxplot (only in the fiber arm)
 ```{r}
 LPS_genes_separateby_responders <- functions$ko@edata %>% 
     as.data.frame() %>% 
@@ -1128,6 +1133,8 @@ p <-  p+ geom_signif(data = subset(LPS_genes_separateby_responders, group == "ab
                 test = "t.test",
                 test.args = list(paired = TRUE),
                 map_signif_level = TRUE)
+p
+
 
 ```
 
@@ -1168,7 +1175,7 @@ p <- ggplot(LPS_genes_all_groups, aes(timepoint, `Sum of lipopolysaccharide bios
     theme_bw() +
     labs(y = "Counts", x = "Timepoint",title = bquote(italic(P)~"="~"0.43"))
     
-
+p
 
 ```
 
