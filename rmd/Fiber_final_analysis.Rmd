@@ -64,6 +64,7 @@ pacman::p_load(here,
                drc,
                emmeans,
                lmerTest,
+               lme4,
                rmcorr,
                HTSet,
                cowplot,
@@ -381,11 +382,11 @@ plate_long_fiber_summary_output <- plate_long_fiber_summary |>
 #write_excel(plate_long_fiber_summary_output, here("output","LBP_median_summary.xlsx"))
 
 
-#ggsave(LBP_responder, filename = here("figures","separate_LBP_median.jpg"),
- #      dpi = 300,
-  #     width = 8,
-   #    height = 6,
-    #   bg = 'white')
+#ggsave(LBP_responder, filename = here("figures","separate_LBP_median.tiff"),
+       dpi = 300,
+       width = 8,
+       height = 6,
+       bg = 'white')
 
 
 ```
